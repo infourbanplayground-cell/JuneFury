@@ -20,7 +20,7 @@
 //
 // ═══════════════════════════════════════════════════════════════
 
-const DEFAULT_PIN = "1234"; // fallback if ADMIN_PIN script property not set
+const DEFAULT_PIN = "0001"; // fallback if ADMIN_PIN script property not set
 const STATE_KEY   = "june_fury_state";
 
 // ── helpers ────────────────────────────────────────────────────
