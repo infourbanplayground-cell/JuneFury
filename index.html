@@ -1,0 +1,1044 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
+<meta name="theme-color" content="#0a0807" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="June Fury" />
+<title>🔥 JUNE FURY · Urban Playground</title>
+
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='0%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%23fbbf24'/%3E%3Cstop offset='50%25' style='stop-color:%23f97316'/%3E%3Cstop offset='100%25' style='stop-color:%23dc2626'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath d='M50 10 C 35 25 30 40 35 55 C 38 65 30 70 28 75 C 35 70 45 75 50 90 C 55 75 65 70 72 75 C 70 70 62 65 65 55 C 70 40 65 25 50 10 Z' fill='url(%23g)'/%3E%3C/svg%3E" />
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
+
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+<style>
+  html, body { background: #0a0807; color: #fafaf9; margin: 0; padding: 0; min-height: 100%; }
+  body { font-family: 'Manrope', system-ui, sans-serif; -webkit-tap-highlight-color: transparent; overscroll-behavior-y: none; }
+  .font-display { font-family: 'Anton', sans-serif; letter-spacing: 0.02em; }
+  .font-mono { font-family: 'JetBrains Mono', monospace; }
+  * { -webkit-touch-callout: none; }
+  input, textarea, select { -webkit-user-select: text; user-select: text; }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: #1c1917; }
+  ::-webkit-scrollbar-thumb { background: #44403c; border-radius: 3px; }
+  .splash { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: #0a0807; z-index: 999; }
+  .splash .fire { font-family: 'Anton', sans-serif; font-size: 3rem; background: linear-gradient(180deg, #fbbf24, #f97316, #dc2626); -webkit-background-clip: text; background-clip: text; color: transparent; animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+</style>
+</head>
+<body>
+  <div id="splash" class="splash"><div class="fire">JUNE FURY</div></div>
+  <div id="root"></div>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useMemo, useRef } = React;
+
+// ═══════════════════════════════════════════════════════════════
+// 🔌 API CLIENT — connects to your Apps Script backend
+// ═══════════════════════════════════════════════════════════════
+// PASTE YOUR APPS SCRIPT WEB APP URL HERE after deploying:
+const API_URL = "PASTE_YOUR_APPS_SCRIPT_URL_HERE";
+// e.g. "https://script.google.com/macros/s/AKfycb.../exec"
+
+const LOCAL_KEY = "june-fury-state-v2";
+const ADMIN_KEY = "june-fury-admin";
+
+function apiGet(action, params = {}) {
+  if (!API_URL || API_URL.includes("PASTE_YOUR")) return Promise.reject(new Error("API not configured"));
+  return new Promise((resolve, reject) => {
+    const cb = "cb_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8);
+    const timer = setTimeout(() => { cleanup(); reject(new Error("Timeout")); }, 15000);
+    function cleanup() { clearTimeout(timer); delete window[cb]; try { document.body.removeChild(s); } catch (e) {} }
+    window[cb] = (data) => { cleanup(); resolve(data); };
+    const qs = new URLSearchParams({ ...params, action, callback: cb });
+    const s = document.createElement("script");
+    s.src = API_URL + "?" + qs.toString();
+    s.onerror = () => { cleanup(); reject(new Error("Network error")); };
+    document.body.appendChild(s);
+  });
+}
+
+async function apiPost(body) {
+  if (!API_URL || API_URL.includes("PASTE_YOUR")) throw new Error("API not configured");
+  await fetch(API_URL, {
+    method: "POST",
+    mode: "no-cors",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify(body),
+  });
+  return { ok: true };
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 🧮 CALCULATIONS
+// ═══════════════════════════════════════════════════════════════
+const SEED_PLAYERS = ["Hassan Al Salhi", "Faisal Al Harthi", "Talal Al Awadi"];
+const GROUPS = ["A", "B", "C", "D"];
+const LOSS_TYPES = [
+  { id: "tiebreak", label: "Tiebreak Loss", pts: 2, emoji: "🎯" },
+  { id: "competitive", label: "Competitive Loss", pts: 1, emoji: "🤝" },
+  { id: "blowout", label: "6-0 / 6-1 Loss", pts: 0, emoji: "❌" },
+];
+const uid = (p = "id") => p + "_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 7);
+
+function initState() {
+  return {
+    seasonName: "JUNE FURY",
+    seasonTagline: "New Rules. New Chaos.",
+    players: SEED_PLAYERS.map(name => ({ id: uid("p"), name, addedAt: Date.now() })),
+    sessions: [],
+  };
+}
+
+function getPlayerTeam(s, pid) { return (s.teams || []).find(t => t.p1Id === pid || t.p2Id === pid); }
+function teamWon(m, tid) { if (!m || !m.winner) return false; if (m.winner === "team1") return m.team1Id === tid; if (m.winner === "team2") return m.team2Id === tid; return false; }
+
+function calcGroupStandings(session, group) {
+  const teams = (session.teams || []).filter(t => t.group === group);
+  return teams.map(team => {
+    let pts = 0, wins = 0, played = 0;
+    (session.groupMatches || []).forEach(m => {
+      if (m.team1Id !== team.id && m.team2Id !== team.id) return;
+      if (!m.winner) return; played++;
+      if (teamWon(m, team.id)) { pts += 3; wins++; }
+      else { const t = m.lossType || "tiebreak"; if (t === "tiebreak") pts += 2; else if (t === "competitive") pts += 1; }
+    });
+    return { team, pts, wins, played };
+  }).sort((a, b) => b.pts - a.pts || b.wins - a.wins);
+}
+
+function getTopOfGroup(s, g) { const ov = s.topOfGroupOverride && s.topOfGroupOverride[g]; if (ov) return ov; const r = calcGroupStandings(s, g); return r[0]?.team?.id || null; }
+
+function calcStreak(idxs) {
+  if (!idxs?.length) return 0;
+  const sorted = [...idxs].sort((a, b) => a - b);
+  let total = 0, len = 0, last = null;
+  for (const i of sorted) {
+    if (last === null || i === last + 1) len++; else len = 1;
+    last = i;
+    if (len === 1 || len === 2 || len === 3) total += 1;
+    else if (len === 4) total += 2;
+  }
+  return Math.min(total, 5);
+}
+
+function calcPlayerStats(pid, sessions) {
+  let total = 0;
+  const breakdown = { matchPts: 0, topOfGroup: 0, knockoutPts: 0, streakPts: 0 };
+  const stats = { groupWins: 0, groupPlayed: 0, sessionsPlayed: 0, qfReached: 0, sfReached: 0, finalsReached: 0, finalsWon: 0 };
+  const attended = [];
+  const partners = {};
+  sessions.forEach((s, idx) => {
+    const team = getPlayerTeam(s, pid); if (!team) return;
+    attended.push(idx); stats.sessionsPlayed++;
+    const partnerId = team.p1Id === pid ? team.p2Id : team.p1Id;
+    partners[partnerId] = (partners[partnerId] || 0) + 1;
+    (s.groupMatches || []).forEach(m => {
+      if (m.team1Id !== team.id && m.team2Id !== team.id) return;
+      if (!m.winner) return; stats.groupPlayed++;
+      if (teamWon(m, team.id)) { total += 3; breakdown.matchPts += 3; stats.groupWins++; }
+      else { const t = m.lossType || "tiebreak"; const p = t === "tiebreak" ? 2 : t === "competitive" ? 1 : 0; total += p; breakdown.matchPts += p; }
+    });
+    if (getTopOfGroup(s, team.group) === team.id) { total += 1; breakdown.topOfGroup += 1; }
+    const qf = s.bracket?.qf?.find(m => m.team1Id === team.id || m.team2Id === team.id);
+    if (qf) { total += 1; breakdown.knockoutPts += 1; stats.qfReached++;
+      if (teamWon(qf, team.id)) {
+        const sf = s.bracket?.sf?.find(m => m.team1Id === team.id || m.team2Id === team.id);
+        if (sf) { total += 2; breakdown.knockoutPts += 2; stats.sfReached++;
+          if (teamWon(sf, team.id)) {
+            const f = s.bracket?.final;
+            if (f && (f.team1Id === team.id || f.team2Id === team.id)) { total += 3; breakdown.knockoutPts += 3; stats.finalsReached++;
+              if (teamWon(f, team.id)) { total += 5; breakdown.knockoutPts += 5; stats.finalsWon++; }
+            }}}}}
+  });
+  const streak = calcStreak(attended); total += streak; breakdown.streakPts = streak;
+  return { totalPts: total, breakdown, stats, attended, partners };
+}
+
+function getLockedPartners(pid, sessions) {
+  const locked = new Set();
+  sessions.forEach(s => {
+    const team = getPlayerTeam(s, pid); if (!team) return;
+    const partnerId = team.p1Id === pid ? team.p2Id : team.p1Id;
+    const wonAny = (s.groupMatches || []).some(m => (m.team1Id === team.id || m.team2Id === team.id) && teamWon(m, team.id))
+      || [...(s.bracket?.qf || []), ...(s.bracket?.sf || []), s.bracket?.final].some(m => m && (m.team1Id === team.id || m.team2Id === team.id) && teamWon(m, team.id));
+    if (wonAny) locked.add(partnerId);
+  });
+  return locked;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 🎨 ICONS (inline SVG)
+// ═══════════════════════════════════════════════════════════════
+const Icon = ({ d, size = 18, className = "", style = {}, strokeWidth = 2 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" className={className} style={style} dangerouslySetInnerHTML={{ __html: d }} />
+);
+const I = {
+  flame: (p) => <Icon d='<path d="M8.5 14.5A2.5 2.5 0 0011 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 11-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 002.5 2.5z"/>' {...p} />,
+  crown: (p) => <Icon d='<path d="M11.562 3.266a.5.5 0 01.876 0L15.39 8.87a1 1 0 001.516.294L21.183 5.5a.5.5 0 01.798.519l-2.834 10.246a1 1 0 01-.956.734H5.81a1 1 0 01-.957-.734L2.02 6.02a.5.5 0 01.798-.519l4.276 3.664a1 1 0 001.516-.294z"/><path d="M5 21h14"/>' {...p} />,
+  trophy: (p) => <Icon d='<path d="M6 9H4.5a2.5 2.5 0 010-5H6"/><path d="M18 9h1.5a2.5 2.5 0 000-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0012 0V2z"/>' {...p} />,
+  users: (p) => <Icon d='<path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><path d="M22 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/>' {...p} />,
+  calendar: (p) => <Icon d='<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>' {...p} />,
+  bar: (p) => <Icon d='<path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>' {...p} />,
+  settings: (p) => <Icon d='<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/>' {...p} />,
+  plus: (p) => <Icon d='<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>' {...p} />,
+  x: (p) => <Icon d='<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>' {...p} />,
+  edit: (p) => <Icon d='<path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>' {...p} />,
+  trash: (p) => <Icon d='<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>' {...p} />,
+  chev: (p) => <Icon d='<polyline points="9 18 15 12 9 6"/>' {...p} />,
+  lock: (p) => <Icon d='<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/>' {...p} />,
+  unlock: (p) => <Icon d='<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 019.9-1"/>' {...p} />,
+  search: (p) => <Icon d='<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>' {...p} />,
+  download: (p) => <Icon d='<path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>' {...p} />,
+  upload: (p) => <Icon d='<path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>' {...p} />,
+  alert: (p) => <Icon d='<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>' {...p} />,
+  bolt: (p) => <Icon d='<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>' {...p} />,
+  back: (p) => <Icon d='<line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>' {...p} />,
+  dots: (p) => <Icon d='<circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/>' {...p} />,
+  swords: (p) => <Icon d='<polyline points="14.5 17.5 3 6 3 3 6 3 17.5 14.5"/><line x1="13" y1="19" x2="19" y2="13"/><line x1="16" y1="16" x2="20" y2="20"/><line x1="19" y1="21" x2="21" y2="19"/><polyline points="14.5 6.5 18 3 21 3 21 6 17.5 9.5"/><line x1="5" y1="14" x2="9" y2="18"/><line x1="7" y1="17" x2="4" y2="20"/><line x1="3" y1="19" x2="5" y2="21"/>' {...p} />,
+};
+
+// ═══════════════════════════════════════════════════════════════
+// 🎨 UI PRIMITIVES
+// ═══════════════════════════════════════════════════════════════
+function Pill({ children, color = "orange" }) {
+  const map = {
+    orange: "bg-orange-500/15 text-orange-400 border-orange-500/30",
+    red: "bg-red-500/15 text-red-400 border-red-500/30",
+    amber: "bg-amber-400/15 text-amber-300 border-amber-400/30",
+    blue: "bg-blue-500/15 text-blue-300 border-blue-500/30",
+    stone: "bg-stone-500/15 text-stone-300 border-stone-500/30",
+    green: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
+  };
+  return <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold border ${map[color]}`}>{children}</span>;
+}
+
+function Btn({ children, onClick, variant = "primary", size = "md", className = "", disabled, type = "button" }) {
+  const base = "inline-flex items-center justify-center gap-2 rounded-lg font-semibold transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed";
+  const v = {
+    primary: "bg-gradient-to-b from-orange-500 to-red-600 text-white shadow-lg shadow-orange-500/20",
+    secondary: "bg-stone-800 text-stone-100 border border-stone-700",
+    ghost: "text-stone-300 hover:bg-stone-800",
+    danger: "bg-red-900/40 text-red-300 border border-red-800/50",
+    gold: "bg-gradient-to-b from-amber-300 to-amber-500 text-stone-950 shadow-lg shadow-amber-500/20",
+  };
+  const sz = { sm: "px-3 py-1.5 text-xs", md: "px-4 py-2 text-sm", lg: "px-5 py-3 text-base" };
+  return <button type={type} onClick={onClick} disabled={disabled} className={`${base} ${v[variant]} ${sz[size]} ${className}`}>{children}</button>;
+}
+
+function Card({ children, className = "", onClick }) {
+  return <div onClick={onClick} className={`bg-stone-900/60 border border-stone-800 rounded-xl backdrop-blur ${onClick ? "cursor-pointer active:scale-[0.99] transition-transform" : ""} ${className}`}>{children}</div>;
+}
+
+function Input({ value, onChange, placeholder, className = "", type = "text", autoFocus }) {
+  return <input type={type} value={value || ""} onChange={e => onChange(e.target.value)} placeholder={placeholder} autoFocus={autoFocus} className={`w-full bg-stone-900 border border-stone-700 rounded-lg px-3 py-2.5 text-stone-100 placeholder-stone-500 focus:outline-none focus:border-orange-500 ${className}`} />;
+}
+
+function Modal({ open, onClose, title, children }) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
+      <div onClick={e => e.stopPropagation()} className="relative w-full max-w-lg bg-stone-950 border border-stone-800 rounded-t-2xl sm:rounded-2xl max-h-[90vh] overflow-y-auto">
+        <div className="sticky top-0 bg-stone-950/95 backdrop-blur border-b border-stone-800 px-4 py-3 flex items-center justify-between z-10">
+          <h2 className="font-display text-xl text-stone-100">{title}</h2>
+          <button onClick={onClose} className="text-stone-400 hover:text-stone-100 p-1"><I.x size={20} /></button>
+        </div>
+        <div className="p-4">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function PlayerPicker({ players, value, onChange, exclude = [], placeholder = "Pick player" }) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const ref = useRef();
+  useEffect(() => { const h = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }; document.addEventListener("mousedown", h); return () => document.removeEventListener("mousedown", h); }, []);
+  const sel = players.find(p => p.id === value);
+  const avail = players.filter(p => !exclude.includes(p.id) && (!search || p.name.toLowerCase().includes(search.toLowerCase())));
+  return (
+    <div className="relative" ref={ref}>
+      <button type="button" onClick={() => setOpen(!open)} className="w-full bg-stone-900 border border-stone-700 rounded-lg px-3 py-2.5 text-left flex items-center justify-between">
+        <span className={sel ? "text-stone-100" : "text-stone-500"}>{sel?.name || placeholder}</span>
+        <I.chev size={16} className={`transition-transform ${open ? "rotate-90" : ""}`} />
+      </button>
+      {open && (
+        <div className="absolute z-20 mt-1 w-full bg-stone-900 border border-stone-700 rounded-lg shadow-2xl max-h-64 overflow-y-auto">
+          <div className="sticky top-0 bg-stone-900 p-2 border-b border-stone-800">
+            <div className="relative">
+              <I.search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-500" />
+              <input autoFocus value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…" className="w-full bg-stone-800 rounded-md pl-8 pr-2 py-1.5 text-sm text-stone-100 focus:outline-none" />
+            </div>
+          </div>
+          {avail.length === 0 ? <div className="px-3 py-4 text-sm text-stone-500 text-center">No players found</div>
+            : avail.map(p => <button key={p.id} type="button" onClick={() => { onChange(p.id); setOpen(false); setSearch(""); }} className="w-full text-left px-3 py-2 hover:bg-stone-800 text-stone-100 text-sm border-b border-stone-800/50 last:border-0">{p.name}</button>)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 🎯 MAIN APP
+// ═══════════════════════════════════════════════════════════════
+function App() {
+  const [state, setState] = useState(null);
+  const [tab, setTab] = useState("dashboard");
+  const [openSessionId, setOpenSessionId] = useState(null);
+  const [openPlayerId, setOpenPlayerId] = useState(null);
+  const [isAdmin, setIsAdmin] = useState(() => localStorage.getItem(ADMIN_KEY) === "yes");
+  const [showLogin, setShowLogin] = useState(false);
+  const [sync, setSync] = useState("idle");
+  const saveTimer = useRef();
+  const pollTimer = useRef();
+  const initialLoaded = useRef(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await apiGet("getState");
+        if (res?.ok && res.state) {
+          setState(res.state);
+          localStorage.setItem(LOCAL_KEY, JSON.stringify(res.state));
+          setSync("idle");
+          initialLoaded.current = true;
+          document.getElementById("splash")?.remove();
+          return;
+        }
+      } catch (e) { setSync("offline"); }
+      try {
+        const cached = localStorage.getItem(LOCAL_KEY);
+        setState(cached ? JSON.parse(cached) : initState());
+      } catch (e) { setState(initState()); }
+      initialLoaded.current = true;
+      document.getElementById("splash")?.remove();
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (!state || !initialLoaded.current) return;
+    try { localStorage.setItem(LOCAL_KEY, JSON.stringify(state)); } catch (e) {}
+    if (!isAdmin) return;
+    clearTimeout(saveTimer.current);
+    setSync("syncing");
+    saveTimer.current = setTimeout(async () => {
+      try { await apiPost({ action: "saveState", state }); setSync("idle"); }
+      catch (e) { setSync("error"); }
+    }, 600);
+  }, [state, isAdmin]);
+
+  useEffect(() => {
+    if (isAdmin) return;
+    pollTimer.current = setInterval(async () => {
+      try {
+        const res = await apiGet("getState");
+        if (res?.ok && res.state) {
+          setState(s => (JSON.stringify(s) !== JSON.stringify(res.state) ? res.state : s));
+          setSync("idle");
+        }
+      } catch (e) { setSync("offline"); }
+    }, 30000);
+    return () => clearInterval(pollTimer.current);
+  }, [isAdmin]);
+
+  const handleLogin = async (pin) => {
+    try { const r = await apiGet("unlock", { pin }); if (r?.ok) { setIsAdmin(true); localStorage.setItem(ADMIN_KEY, "yes"); setShowLogin(false); return true; } return false; }
+    catch (e) { return false; }
+  };
+  const logout = () => { setIsAdmin(false); localStorage.removeItem(ADMIN_KEY); };
+
+  if (!state) return null;
+
+  const update = (fn) => setState(s => fn({ ...s }));
+  const updateSession = (sid, fn) => setState(s => ({ ...s, sessions: s.sessions.map(ss => ss.id === sid ? fn({ ...ss }) : ss) }));
+  const leaderboard = state.players.map(p => ({ player: p, ...calcPlayerStats(p.id, state.sessions) })).sort((a, b) => b.totalPts - a.totalPts);
+  const currentSession = state.sessions.find(s => s.id === openSessionId);
+
+  return (
+    <div className="min-h-screen text-stone-100" style={{ background: "radial-gradient(ellipse at top, rgba(249, 115, 22, 0.08) 0%, transparent 50%), radial-gradient(ellipse at bottom, rgba(220, 38, 38, 0.05) 0%, transparent 50%), #0a0807" }}>
+      <header className="sticky top-0 z-30 backdrop-blur-xl border-b border-stone-800/80" style={{ background: "rgba(10, 8, 7, 0.85)" }}>
+        <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 shrink-0 rounded-lg flex items-center justify-center" style={{ background: "linear-gradient(135deg, #f97316, #dc2626)" }}>
+              <I.flame size={20} style={{ color: "#fff" }} />
+            </div>
+            <div className="min-w-0">
+              <div className="font-display text-2xl leading-none truncate" style={{ background: "linear-gradient(180deg, #fbbf24 0%, #f97316 45%, #dc2626 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>{state.seasonName}</div>
+              <div className="text-[10px] text-stone-500 uppercase tracking-widest font-semibold mt-0.5">Urban Playground</div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <SyncIndicator status={sync} />
+            {isAdmin ? <button onClick={() => setTab("settings")} className="text-stone-400 hover:text-orange-500 p-2"><I.settings size={18} /></button>
+              : <button onClick={() => setShowLogin(true)} className="text-stone-400 hover:text-orange-500 p-2"><I.lock size={18} /></button>}
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-3xl mx-auto px-4 py-4 pb-24">
+        {tab === "dashboard" && <DashboardView state={state} leaderboard={leaderboard} setTab={setTab} setOpenSessionId={setOpenSessionId} isAdmin={isAdmin} />}
+        {tab === "players" && <PlayersView state={state} update={update} setOpenPlayerId={setOpenPlayerId} isAdmin={isAdmin} />}
+        {tab === "sessions" && <SessionsView state={state} update={update} setOpenSessionId={setOpenSessionId} isAdmin={isAdmin} />}
+        {tab === "leaderboard" && <LeaderboardView leaderboard={leaderboard} state={state} setOpenPlayerId={setOpenPlayerId} />}
+        {tab === "settings" && isAdmin && <SettingsView state={state} update={update} setState={setState} setTab={setTab} logout={logout} />}
+      </main>
+
+      <nav className="fixed bottom-0 inset-x-0 z-30 border-t border-stone-800/80 backdrop-blur-xl" style={{ background: "rgba(10, 8, 7, 0.92)" }}>
+        <div className="max-w-3xl mx-auto grid grid-cols-4 px-2 py-1.5">
+          {[{id:"dashboard",icon:I.flame,label:"Home"},{id:"sessions",icon:I.calendar,label:"Sessions"},{id:"leaderboard",icon:I.trophy,label:"Rank"},{id:"players",icon:I.users,label:"Players"}].map(t => {
+            const A = t.icon;
+            return <button key={t.id} onClick={() => setTab(t.id)} className={`flex flex-col items-center gap-0.5 py-2 rounded-lg ${tab === t.id ? "text-orange-500" : "text-stone-500"}`}>
+              <A size={20} /><span className="text-[10px] font-semibold tracking-wide uppercase">{t.label}</span>
+            </button>;
+          })}
+        </div>
+      </nav>
+
+      {currentSession && <SessionDetail session={currentSession} state={state} isAdmin={isAdmin} onClose={() => setOpenSessionId(null)} updateSession={(fn) => updateSession(currentSession.id, fn)} deleteSession={() => { update(s => ({ ...s, sessions: s.sessions.filter(ss => ss.id !== currentSession.id) })); setOpenSessionId(null); }} />}
+      {openPlayerId && <PlayerDetail playerId={openPlayerId} state={state} leaderboard={leaderboard} onClose={() => setOpenPlayerId(null)} />}
+      {showLogin && <LoginModal onClose={() => setShowLogin(false)} onLogin={handleLogin} />}
+    </div>
+  );
+}
+
+function SyncIndicator({ status }) {
+  const map = { idle:{color:"#10b981",label:"Synced"}, syncing:{color:"#f59e0b",label:"Syncing"}, error:{color:"#ef4444",label:"Sync error"}, offline:{color:"#a8a29e",label:"Offline"} };
+  const s = map[status] || map.idle;
+  return <div className="flex items-center gap-1.5 text-[10px] uppercase font-semibold tracking-wider" title={s.label}>
+    <div className="w-2 h-2 rounded-full" style={{ background: s.color, boxShadow: `0 0 8px ${s.color}` }} />
+    <span className="text-stone-500 hidden sm:inline">{s.label}</span>
+  </div>;
+}
+
+function LoginModal({ onClose, onLogin }) {
+  const [pin, setPin] = useState("");
+  const [err, setErr] = useState("");
+  const submit = async () => { setErr(""); const ok = await onLogin(pin); if (!ok) setErr("Wrong PIN"); };
+  return <Modal open={true} onClose={onClose} title="ORGANIZER LOGIN">
+    <div className="space-y-3">
+      <div className="text-xs text-stone-400">Enter the organizer PIN to unlock editing.</div>
+      <input autoFocus type="password" value={pin} onChange={e => setPin(e.target.value)} placeholder="••••" onKeyDown={e => e.key === "Enter" && submit()} className="w-full bg-stone-900 border border-stone-700 rounded-lg px-3 py-3 text-center text-2xl font-mono text-stone-100 tracking-widest focus:outline-none focus:border-orange-500" />
+      {err && <div className="text-xs text-red-400 text-center">{err}</div>}
+      <Btn className="w-full" onClick={submit}><I.unlock size={14} /> Unlock</Btn>
+    </div>
+  </Modal>;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// VIEWS
+// ═══════════════════════════════════════════════════════════════
+function DashboardView({ state, leaderboard, setTab, setOpenSessionId, isAdmin }) {
+  const top3 = leaderboard.slice(0, 3);
+  const latest = state.sessions[state.sessions.length - 1];
+  const active = leaderboard.filter(l => l.stats.sessionsPlayed > 0).length;
+  return (
+    <div className="space-y-4">
+      <div className="text-center py-6">
+        <div className="text-stone-500 text-xs uppercase tracking-[0.3em] mb-2">Season Active</div>
+        <div className="font-display text-6xl leading-none mb-2" style={{ background: "linear-gradient(180deg, #fbbf24 0%, #f97316 40%, #dc2626 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>{state.seasonName}</div>
+        <div className="text-stone-400 text-sm italic">{state.seasonTagline}</div>
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        <Card className="p-3 text-center"><div className="text-3xl font-mono font-bold text-orange-500">{state.sessions.length}</div><div className="text-[10px] text-stone-500 uppercase tracking-wider mt-1">Sessions</div></Card>
+        <Card className="p-3 text-center"><div className="text-3xl font-mono font-bold text-amber-400">{active}</div><div className="text-[10px] text-stone-500 uppercase tracking-wider mt-1">Active</div></Card>
+        <Card className="p-3 text-center"><div className="text-3xl font-mono font-bold text-stone-300">{state.players.length}</div><div className="text-[10px] text-stone-500 uppercase tracking-wider mt-1">Players</div></Card>
+      </div>
+      {top3.length > 0 && top3[0].totalPts > 0 && (
+        <Card className="p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-display text-xl text-stone-200">LEADERBOARD</h3>
+            <button onClick={() => setTab("leaderboard")} className="text-orange-500 text-xs font-semibold">VIEW ALL →</button>
+          </div>
+          <div className="space-y-2">
+            {top3.map((e, i) => (
+              <div key={e.player.id} className="flex items-center gap-3 p-2 rounded-lg" style={{ background: i === 0 ? "linear-gradient(90deg, rgba(251, 191, 36, 0.1), transparent)" : i === 1 ? "linear-gradient(90deg, rgba(168, 162, 158, 0.08), transparent)" : "linear-gradient(90deg, rgba(180, 83, 9, 0.08), transparent)" }}>
+                <div className="text-2xl">{["🥇","🥈","🥉"][i]}</div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-semibold text-stone-100 truncate">{e.player.name}</div>
+                  <div className="text-xs text-stone-500">{e.stats.sessionsPlayed} sess · {e.stats.groupWins}W</div>
+                </div>
+                <div className="text-right">
+                  <div className="font-mono font-bold text-xl text-orange-500">{e.totalPts}</div>
+                  <div className="text-[10px] text-stone-500 uppercase">pts</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+      {latest ? (
+        <Card className="p-4 cursor-pointer" onClick={() => setOpenSessionId(latest.id)}>
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs text-stone-500 uppercase tracking-wider font-semibold">Latest Session</span>
+            <Pill color={latest.completed ? "green" : "orange"}>{latest.completed ? "Complete" : "Active"}</Pill>
+          </div>
+          <h3 className="font-display text-2xl text-stone-100 mb-1">{latest.name}</h3>
+          <div className="text-sm text-stone-400">{latest.teams?.length || 0} teams · {latest.date ? new Date(latest.date).toLocaleDateString() : "No date"}</div>
+          <div className="mt-3 text-orange-500 text-sm font-semibold flex items-center gap-1">View <I.chev size={14} /></div>
+        </Card>
+      ) : isAdmin ? (
+        <Card className="p-6 text-center border-dashed">
+          <I.calendar className="mx-auto mb-2 text-stone-600" size={32} />
+          <div className="text-stone-400 mb-3">No sessions yet</div>
+          <Btn onClick={() => setTab("sessions")}><I.plus size={14} /> Create Session 1</Btn>
+        </Card>
+      ) : (
+        <Card className="p-6 text-center border-dashed">
+          <I.calendar className="mx-auto mb-2 text-stone-600" size={32} />
+          <div className="text-stone-400">Waiting for first session…</div>
+        </Card>
+      )}
+      <Card className="p-4">
+        <h3 className="font-display text-lg text-stone-200 mb-3">JUNE FURY RULES</h3>
+        <div className="space-y-2 text-sm">
+          <div className="flex gap-2"><I.lock size={14} className="text-red-500 mt-0.5 shrink-0" /><span className="text-stone-300"><b>Loyalty Lockout:</b> Win with a partner → can't pair again all series</span></div>
+          <div className="flex gap-2"><I.trophy size={14} className="text-amber-400 mt-0.5 shrink-0" /><span className="text-stone-300"><b>Knockouts:</b> QF +1 → SF +2 → Final +3 → Win +5</span></div>
+          <div className="flex gap-2"><I.bolt size={14} className="text-orange-500 mt-0.5 shrink-0" /><span className="text-stone-300"><b>Streak Bonus:</b> Up to +5 pts for full attendance</span></div>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function PlayersView({ state, update, setOpenPlayerId, isAdmin }) {
+  const [search, setSearch] = useState("");
+  const [showAdd, setShowAdd] = useState(false);
+  const [showBulk, setShowBulk] = useState(false);
+  const filtered = state.players.filter(p => !search || p.name.toLowerCase().includes(search.toLowerCase()));
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="font-display text-3xl text-stone-100">PLAYERS</h2>
+        {isAdmin && <div className="flex gap-2">
+          <Btn variant="secondary" size="sm" onClick={() => setShowBulk(true)}><I.upload size={14} /> Bulk</Btn>
+          <Btn size="sm" onClick={() => setShowAdd(true)}><I.plus size={14} /> Add</Btn>
+        </div>}
+      </div>
+      <div className="relative">
+        <I.search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-500" />
+        <Input value={search} onChange={setSearch} placeholder="Search players…" className="pl-9" />
+      </div>
+      <div className="space-y-2">
+        {filtered.length === 0 ? <Card className="p-6 text-center text-stone-500">No players match.</Card>
+          : filtered.map(p => {
+            const stats = calcPlayerStats(p.id, state.sessions);
+            return (
+              <Card key={p.id} className="p-3 flex items-center gap-3" onClick={() => setOpenPlayerId(p.id)}>
+                <div className="w-10 h-10 rounded-full flex items-center justify-center text-stone-100 font-bold" style={{ background: "linear-gradient(135deg, #44403c, #292524)" }}>{p.name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase()}</div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-semibold text-stone-100 truncate">{p.name}</div>
+                  <div className="text-xs text-stone-500">{stats.stats.sessionsPlayed} sessions · {stats.stats.groupWins}W</div>
+                </div>
+                <div className="text-right">
+                  <div className="font-mono font-bold text-orange-500">{stats.totalPts}</div>
+                  <div className="text-[10px] text-stone-500 uppercase">pts</div>
+                </div>
+                <I.chev size={16} className="text-stone-600" />
+              </Card>
+            );
+          })}
+      </div>
+      {showAdd && <AddPlayerModal onClose={() => setShowAdd(false)} onAdd={(name) => update(s => ({ ...s, players: [...s.players, { id: uid("p"), name: name.trim(), addedAt: Date.now() }] }))} />}
+      {showBulk && <BulkAddModal onClose={() => setShowBulk(false)} existing={state.players.map(p => p.name)} onAdd={(names) => update(s => ({ ...s, players: [...s.players, ...names.map(n => ({ id: uid("p"), name: n, addedAt: Date.now() }))] }))} />}
+    </div>
+  );
+}
+
+function AddPlayerModal({ onClose, onAdd }) {
+  const [n, setN] = useState("");
+  return <Modal open={true} onClose={onClose} title="ADD PLAYER">
+    <div className="space-y-3">
+      <Input autoFocus value={n} onChange={setN} placeholder="Player name" />
+      <div className="flex gap-2">
+        <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
+        <Btn onClick={() => { if (n.trim()) { onAdd(n); onClose(); } }} disabled={!n.trim()}>Add</Btn>
+      </div>
+    </div>
+  </Modal>;
+}
+
+function BulkAddModal({ onClose, onAdd, existing }) {
+  const [t, setT] = useState("");
+  const lines = t.split("\n").map(l => l.trim()).filter(l => l.length > 0);
+  const fresh = lines.filter(l => !existing.includes(l));
+  return <Modal open={true} onClose={onClose} title="BULK ADD">
+    <div className="space-y-3">
+      <div className="text-xs text-stone-400">One name per line. Duplicates skipped.</div>
+      <textarea value={t} onChange={e => setT(e.target.value)} rows={10} placeholder="Hassan Al Salhi&#10;Faisal Al Harthi&#10;…" className="w-full bg-stone-900 border border-stone-700 rounded-lg px-3 py-2.5 text-stone-100 font-mono text-sm focus:outline-none focus:border-orange-500" />
+      <div className="text-xs text-stone-500">{lines.length} lines · <span className="text-emerald-400">{fresh.length} new</span></div>
+      <div className="flex gap-2">
+        <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
+        <Btn onClick={() => { onAdd(fresh); onClose(); }} disabled={!fresh.length}>Import {fresh.length}</Btn>
+      </div>
+    </div>
+  </Modal>;
+}
+
+function SessionsView({ state, update, setOpenSessionId, isAdmin }) {
+  const [show, setShow] = useState(false);
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="font-display text-3xl text-stone-100">SESSIONS</h2>
+        {isAdmin && <Btn size="sm" onClick={() => setShow(true)}><I.plus size={14} /> New</Btn>}
+      </div>
+      <div className="space-y-2">
+        {state.sessions.length === 0 ? (
+          <Card className="p-8 text-center border-dashed">
+            <I.calendar className="mx-auto mb-3 text-stone-600" size={36} />
+            <div className="text-stone-300 font-semibold mb-1">No sessions yet</div>
+            {isAdmin && <><div className="text-stone-500 text-sm mb-4">Start the series by creating Session 1</div><Btn onClick={() => setShow(true)}><I.plus size={14} /> Create Session</Btn></>}
+          </Card>
+        ) : state.sessions.slice().reverse().map(s => (
+          <Card key={s.id} className="p-4" onClick={() => setOpenSessionId(s.id)}>
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <h3 className="font-display text-xl text-stone-100 truncate">{s.name}</h3>
+                  <Pill color={s.completed ? "green" : "orange"}>{s.completed ? "Done" : "Active"}</Pill>
+                </div>
+                <div className="text-xs text-stone-500">{s.date ? new Date(s.date).toLocaleDateString("en-GB", { weekday: "short", month: "short", day: "numeric" }) : "No date"} · {s.teams?.length || 0} teams · {(s.groupMatches || []).filter(m => m.winner).length} matches</div>
+              </div>
+              <I.chev className="text-stone-600 shrink-0" />
+            </div>
+          </Card>
+        ))}
+      </div>
+      {show && <CreateSessionModal onClose={() => setShow(false)} count={state.sessions.length} onCreate={(name, date) => { const id = uid("s"); update(s => ({ ...s, sessions: [...s.sessions, { id, name, date, teams: [], groupMatches: [], bracket: { qf: [], sf: [], final: null }, waitlist: [], completed: false }] })); setOpenSessionId(id); }} />}
+    </div>
+  );
+}
+
+function CreateSessionModal({ onClose, onCreate, count }) {
+  const [n, setN] = useState(`Session ${count + 1}`);
+  const [d, setD] = useState(new Date().toISOString().slice(0, 10));
+  return <Modal open={true} onClose={onClose} title="NEW SESSION">
+    <div className="space-y-3">
+      <div><label className="text-xs text-stone-400 uppercase tracking-wider font-semibold mb-1 block">Name</label><Input autoFocus value={n} onChange={setN} /></div>
+      <div><label className="text-xs text-stone-400 uppercase tracking-wider font-semibold mb-1 block">Date</label><Input type="date" value={d} onChange={setD} /></div>
+      <div className="flex gap-2 pt-2"><Btn variant="ghost" onClick={onClose}>Cancel</Btn><Btn onClick={() => { if (n) { onCreate(n, d); onClose(); } }}>Create</Btn></div>
+    </div>
+  </Modal>;
+}
+
+function SessionDetail({ session, state, isAdmin, onClose, updateSession, deleteSession }) {
+  const [tab, setTab] = useState("teams");
+  const [showEdit, setShowEdit] = useState(false);
+  const [showDel, setShowDel] = useState(false);
+  return (
+    <div className="fixed inset-0 z-40 bg-stone-950 overflow-y-auto" style={{ background: "radial-gradient(ellipse at top, rgba(249, 115, 22, 0.08) 0%, transparent 50%), #0a0807" }}>
+      <div className="sticky top-0 z-10 backdrop-blur-xl border-b border-stone-800/80 px-4 py-3 flex items-center justify-between gap-3" style={{ background: "rgba(10, 8, 7, 0.92)" }}>
+        <button onClick={onClose} className="text-stone-300 hover:text-orange-500 p-1"><I.back size={22} /></button>
+        <div className="flex-1 min-w-0 text-center">
+          <div className="font-display text-xl text-stone-100 truncate">{session.name}</div>
+          <div className="text-[10px] text-stone-500 uppercase tracking-wider">{session.date ? new Date(session.date).toLocaleDateString() : "No date"}</div>
+        </div>
+        {isAdmin ? <button onClick={() => setShowEdit(true)} className="text-stone-400 hover:text-orange-500 p-1"><I.dots size={20} /></button> : <div className="w-7" />}
+      </div>
+      <div className="sticky top-[57px] z-10 px-4 py-2 backdrop-blur-xl border-b border-stone-800/40" style={{ background: "rgba(10, 8, 7, 0.85)" }}>
+        <div className="max-w-3xl mx-auto flex gap-2 overflow-x-auto">
+          {[{id:"teams",label:"Teams",Ic:I.users},{id:"groups",label:"Groups",Ic:I.bar},{id:"bracket",label:"Knockouts",Ic:I.swords}].map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold whitespace-nowrap ${tab === t.id ? "bg-orange-500/15 text-orange-400 border border-orange-500/30" : "text-stone-400 border border-transparent"}`}>
+              <t.Ic size={14} /> {t.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="max-w-3xl mx-auto px-4 py-4 pb-24">
+        {tab === "teams" && <TeamsTab session={session} state={state} updateSession={updateSession} isAdmin={isAdmin} />}
+        {tab === "groups" && <GroupsTab session={session} state={state} updateSession={updateSession} isAdmin={isAdmin} />}
+        {tab === "bracket" && <BracketTab session={session} state={state} updateSession={updateSession} isAdmin={isAdmin} />}
+      </div>
+      {showEdit && <Modal open={true} onClose={() => setShowEdit(false)} title="SESSION OPTIONS">
+        <div className="space-y-3">
+          <div><label className="text-xs text-stone-400 uppercase tracking-wider font-semibold mb-1 block">Name</label><Input value={session.name} onChange={v => updateSession(s => ({ ...s, name: v }))} /></div>
+          <div><label className="text-xs text-stone-400 uppercase tracking-wider font-semibold mb-1 block">Date</label><Input type="date" value={session.date || ""} onChange={v => updateSession(s => ({ ...s, date: v }))} /></div>
+          <div className="flex items-center justify-between p-3 bg-stone-900 rounded-lg">
+            <span className="text-sm text-stone-200">Mark Complete</span>
+            <button onClick={() => updateSession(s => ({ ...s, completed: !s.completed }))} className={`relative w-11 h-6 rounded-full ${session.completed ? "bg-emerald-500" : "bg-stone-700"}`}>
+              <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform ${session.completed ? "translate-x-5" : "translate-x-0.5"}`} />
+            </button>
+          </div>
+          <Btn variant="danger" className="w-full" onClick={() => setShowDel(true)}><I.trash size={14} /> Delete Session</Btn>
+        </div>
+      </Modal>}
+      {showDel && <Modal open={true} onClose={() => setShowDel(false)} title="DELETE?">
+        <div className="space-y-3">
+          <div className="text-sm text-stone-300">Permanently delete <b>{session.name}</b>?</div>
+          <div className="flex gap-2"><Btn variant="ghost" onClick={() => setShowDel(false)}>Cancel</Btn><Btn variant="danger" onClick={deleteSession}>Delete</Btn></div>
+        </div>
+      </Modal>}
+    </div>
+  );
+}
+
+function TeamsTab({ session, state, updateSession, isAdmin }) {
+  const [showAdd, setShowAdd] = useState(false);
+  const [edit, setEdit] = useState(null);
+  const teams = session.teams || [];
+  const byGroup = GROUPS.reduce((a, g) => (a[g] = teams.filter(t => t.group === g), a), {});
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div><div className="text-stone-200 font-semibold">{teams.length} / 16 teams</div>{isAdmin && <div className="text-xs text-stone-500">Tap to edit</div>}</div>
+        {isAdmin && <Btn size="sm" onClick={() => setShowAdd(true)} disabled={teams.length >= 16}><I.plus size={14} /> Add Team</Btn>}
+      </div>
+      {GROUPS.map(g => (
+        <Card key={g} className="p-3">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-md flex items-center justify-center font-display text-stone-950 font-bold" style={{ background: "linear-gradient(135deg, #fbbf24, #f97316)" }}>{g}</div>
+              <span className="font-semibold text-stone-200">Group {g}</span>
+            </div>
+            <span className="text-xs text-stone-500 font-mono">{byGroup[g].length} / 4</span>
+          </div>
+          {byGroup[g].length === 0 ? <div className="text-xs text-stone-600 italic px-2 py-3 text-center border border-dashed border-stone-800 rounded-lg">Empty</div>
+            : <div className="space-y-1">{byGroup[g].map(t => {
+              const p1 = state.players.find(p => p.id === t.p1Id);
+              const p2 = state.players.find(p => p.id === t.p2Id);
+              return <button key={t.id} onClick={() => isAdmin && setEdit(t)} className="w-full flex items-center gap-2 p-2 rounded-lg bg-stone-900/50 hover:bg-stone-800/70 text-left">
+                <div className="flex-1 min-w-0"><div className="text-sm text-stone-100 truncate">{p1?.name || "?"} & {p2?.name || "?"}</div></div>
+                {isAdmin && <I.edit size={12} className="text-stone-500" />}
+              </button>;
+            })}</div>}
+        </Card>
+      ))}
+      {showAdd && <TeamFormModal title="ADD TEAM" state={state} session={session} onClose={() => setShowAdd(false)} onSave={(t) => updateSession(s => ({ ...s, teams: [...(s.teams || []), { id: uid("t"), ...t }] }))} />}
+      {edit && <TeamFormModal title="EDIT TEAM" state={state} session={session} initial={edit} onClose={() => setEdit(null)} onSave={(t) => updateSession(s => ({ ...s, teams: s.teams.map(x => x.id === edit.id ? { ...x, ...t } : x) }))} onDelete={() => updateSession(s => ({ ...s, teams: s.teams.filter(x => x.id !== edit.id) }))} />}
+    </div>
+  );
+}
+
+function TeamFormModal({ title, state, session, initial, onClose, onSave, onDelete }) {
+  const [p1, setP1] = useState(initial?.p1Id || "");
+  const [p2, setP2] = useState(initial?.p2Id || "");
+  const [g, setG] = useState(initial?.group || "A");
+  const warn = useMemo(() => {
+    if (!p1 || !p2) return null;
+    const others = state.sessions.filter(s => s.id !== session.id);
+    const locked = getLockedPartners(p1, others);
+    return locked.has(p2) ? "These players won together before. Loyalty Lockout!" : null;
+  }, [p1, p2, state.sessions, session.id]);
+  const used = (session.teams || []).filter(t => !initial || t.id !== initial.id).flatMap(t => [t.p1Id, t.p2Id]);
+  return <Modal open={true} onClose={onClose} title={title}>
+    <div className="space-y-3">
+      <div><label className="text-xs text-stone-400 uppercase tracking-wider font-semibold mb-1 block">Player 1</label><PlayerPicker players={state.players} value={p1} onChange={setP1} exclude={[...used, p2].filter(Boolean)} /></div>
+      <div><label className="text-xs text-stone-400 uppercase tracking-wider font-semibold mb-1 block">Player 2</label><PlayerPicker players={state.players} value={p2} onChange={setP2} exclude={[...used, p1].filter(Boolean)} /></div>
+      {warn && <div className="flex gap-2 p-2.5 rounded-lg border bg-red-950/30 border-red-900/50 text-red-300 text-xs"><I.lock size={14} className="shrink-0 mt-0.5" /><span>{warn}</span></div>}
+      <div><label className="text-xs text-stone-400 uppercase tracking-wider font-semibold mb-1 block">Group</label>
+        <div className="grid grid-cols-4 gap-2">{GROUPS.map(x => <button key={x} type="button" onClick={() => setG(x)} className={`py-2 rounded-lg font-display text-lg ${g === x ? "bg-gradient-to-b from-orange-500 to-red-600 text-white shadow-lg" : "bg-stone-900 text-stone-300 border border-stone-700"}`}>{x}</button>)}</div>
+      </div>
+      <div className="flex gap-2 pt-2">
+        {onDelete && <Btn variant="danger" onClick={() => { onDelete(); onClose(); }}><I.trash size={14} /></Btn>}
+        <Btn variant="ghost" onClick={onClose} className="ml-auto">Cancel</Btn>
+        <Btn onClick={() => { if (p1 && p2) { onSave({ p1Id: p1, p2Id: p2, group: g }); onClose(); } }} disabled={!p1 || !p2}>Save</Btn>
+      </div>
+    </div>
+  </Modal>;
+}
+
+function GroupsTab({ session, state, updateSession, isAdmin }) {
+  const [edit, setEdit] = useState(null);
+  const [add, setAdd] = useState(null);
+  return (
+    <div className="space-y-4">
+      {isAdmin && <div className="text-xs text-stone-400">Enter group stage match results. Top of group is auto-calculated.</div>}
+      {GROUPS.map(g => {
+        const teams = (session.teams || []).filter(t => t.group === g);
+        const matches = (session.groupMatches || []).filter(m => teams.find(t => t.id === m.team1Id) && teams.find(t => t.id === m.team2Id));
+        const standings = calcGroupStandings(session, g);
+        const top = getTopOfGroup(session, g);
+        return (
+          <Card key={g} className="p-3">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2"><div className="w-7 h-7 rounded-md flex items-center justify-center font-display text-stone-950 font-bold" style={{ background: "linear-gradient(135deg, #fbbf24, #f97316)" }}>{g}</div><span className="font-semibold text-stone-200">Group {g}</span></div>
+              {isAdmin && teams.length >= 2 && <Btn size="sm" variant="secondary" onClick={() => setAdd(g)}><I.plus size={12} /> Match</Btn>}
+            </div>
+            {standings.length > 0 && <div className="mb-3 space-y-1">{standings.map((s, i) => {
+              const p1 = state.players.find(p => p.id === s.team.p1Id);
+              const p2 = state.players.find(p => p.id === s.team.p2Id);
+              const isTop = s.team.id === top;
+              return <div key={s.team.id} className="flex items-center gap-2 px-2 py-1.5 rounded-md" style={{ background: isTop ? "linear-gradient(90deg, rgba(251, 191, 36, 0.12), transparent)" : i % 2 === 0 ? "rgba(28, 25, 23, 0.4)" : "transparent" }}>
+                <span className="font-mono text-xs text-stone-500 w-4">{i + 1}</span>
+                {isTop && <I.crown size={12} className="text-amber-400" />}
+                <span className="flex-1 text-xs text-stone-200 truncate">{p1?.name?.split(" ")[0]} & {p2?.name?.split(" ")[0]}</span>
+                <span className="font-mono text-xs text-stone-400">{s.played}P</span>
+                <span className="font-mono text-xs text-orange-400 font-bold w-7 text-right">{s.pts}</span>
+              </div>;
+            })}</div>}
+            {matches.length === 0 ? <div className="text-xs text-stone-600 italic px-2 py-3 text-center border border-dashed border-stone-800 rounded-lg">No matches</div>
+              : <div className="space-y-1.5">{matches.map(m => {
+                const t1 = (session.teams || []).find(t => t.id === m.team1Id);
+                const t2 = (session.teams || []).find(t => t.id === m.team2Id);
+                const lbl = (t) => t ? `${state.players.find(p => p.id === t.p1Id)?.name?.split(" ")[0] || "?"} & ${state.players.find(p => p.id === t.p2Id)?.name?.split(" ")[0] || "?"}` : "?";
+                return <button key={m.id} onClick={() => isAdmin && setEdit({ ...m, group: g })} className="w-full p-2 rounded-lg bg-stone-900/50 hover:bg-stone-800/70 text-left">
+                  <div className="flex items-center gap-2 text-sm">
+                    <div className={`flex-1 truncate ${m.winner === "team1" ? "text-emerald-400 font-semibold" : "text-stone-300"}`}>{lbl(t1)} {m.winner === "team1" && <I.trophy size={10} className="inline ml-1" />}</div>
+                    <span className="text-stone-600 font-mono text-xs">vs</span>
+                    <div className={`flex-1 truncate text-right ${m.winner === "team2" ? "text-emerald-400 font-semibold" : "text-stone-300"}`}>{m.winner === "team2" && <I.trophy size={10} className="inline mr-1" />}{lbl(t2)}</div>
+                  </div>
+                  {m.lossType && <div className="text-[10px] text-stone-500 mt-0.5 text-center">{LOSS_TYPES.find(lt => lt.id === m.lossType)?.label}</div>}
+                </button>;
+              })}</div>}
+          </Card>
+        );
+      })}
+      {(edit || add) && <MatchEditorModal session={session} state={state} group={edit?.group || add} match={edit} onClose={() => { setEdit(null); setAdd(null); }} onSave={(d) => { if (edit) updateSession(s => ({ ...s, groupMatches: s.groupMatches.map(m => m.id === edit.id ? { ...m, ...d } : m) })); else updateSession(s => ({ ...s, groupMatches: [...(s.groupMatches || []), { id: uid("m"), ...d }] })); }} onDelete={edit ? () => updateSession(s => ({ ...s, groupMatches: s.groupMatches.filter(m => m.id !== edit.id) })) : null} />}
+    </div>
+  );
+}
+
+function MatchEditorModal({ session, state, group, match, onClose, onSave, onDelete }) {
+  const teams = (session.teams || []).filter(t => t.group === group);
+  const [t1, setT1] = useState(match?.team1Id || "");
+  const [t2, setT2] = useState(match?.team2Id || "");
+  const [w, setW] = useState(match?.winner || "");
+  const [lt, setLT] = useState(match?.lossType || "tiebreak");
+  const lbl = (t) => t ? `${state.players.find(p => p.id === t.p1Id)?.name?.split(" ")[0] || "?"} & ${state.players.find(p => p.id === t.p2Id)?.name?.split(" ")[0] || "?"}` : "?";
+  return <Modal open={true} onClose={onClose} title={match ? "EDIT MATCH" : `GROUP ${group} MATCH`}>
+    <div className="space-y-3">
+      <div><label className="text-xs text-stone-400 uppercase tracking-wider font-semibold mb-1 block">Team 1</label><select value={t1} onChange={e => setT1(e.target.value)} className="w-full bg-stone-900 border border-stone-700 rounded-lg px-3 py-2.5 text-stone-100 focus:outline-none focus:border-orange-500"><option value="">Pick team</option>{teams.filter(t => t.id !== t2).map(t => <option key={t.id} value={t.id}>{lbl(t)}</option>)}</select></div>
+      <div><label className="text-xs text-stone-400 uppercase tracking-wider font-semibold mb-1 block">Team 2</label><select value={t2} onChange={e => setT2(e.target.value)} className="w-full bg-stone-900 border border-stone-700 rounded-lg px-3 py-2.5 text-stone-100 focus:outline-none focus:border-orange-500"><option value="">Pick team</option>{teams.filter(t => t.id !== t1).map(t => <option key={t.id} value={t.id}>{lbl(t)}</option>)}</select></div>
+      {t1 && t2 && <>
+        <div><label className="text-xs text-stone-400 uppercase tracking-wider font-semibold mb-1 block">Winner</label>
+          <div className="grid grid-cols-2 gap-2">
+            <button type="button" onClick={() => setW("team1")} className={`py-2 px-3 rounded-lg text-sm font-semibold ${w === "team1" ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40" : "bg-stone-900 text-stone-300 border border-stone-700"}`}>{lbl(teams.find(t => t.id === t1))}</button>
+            <button type="button" onClick={() => setW("team2")} className={`py-2 px-3 rounded-lg text-sm font-semibold ${w === "team2" ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40" : "bg-stone-900 text-stone-300 border border-stone-700"}`}>{lbl(teams.find(t => t.id === t2))}</button>
+          </div>
+        </div>
+        {w && <div><label className="text-xs text-stone-400 uppercase tracking-wider font-semibold mb-1 block">Loss Type</label>
+          <div className="space-y-1.5">{LOSS_TYPES.map(x => <button key={x.id} type="button" onClick={() => setLT(x.id)} className={`w-full px-3 py-2 rounded-lg flex items-center justify-between text-sm ${lt === x.id ? "bg-orange-500/15 border border-orange-500/40 text-orange-200" : "bg-stone-900 border border-stone-700 text-stone-300"}`}><span>{x.emoji} {x.label}</span><span className="font-mono text-xs text-stone-500">{x.pts}pt</span></button>)}</div>
+        </div>}
+      </>}
+      <div className="flex gap-2 pt-2">
+        {onDelete && <Btn variant="danger" onClick={() => { onDelete(); onClose(); }}><I.trash size={14} /></Btn>}
+        <Btn variant="ghost" onClick={onClose} className="ml-auto">Cancel</Btn>
+        <Btn onClick={() => { if (t1 && t2) { onSave({ team1Id: t1, team2Id: t2, winner: w || null, lossType: lt }); onClose(); } }} disabled={!t1 || !t2}>Save</Btn>
+      </div>
+    </div>
+  </Modal>;
+}
+
+function BracketTab({ session, state, updateSession, isAdmin }) {
+  const [edit, setEdit] = useState(null);
+  const b = session.bracket || { qf: [], sf: [], final: null };
+  const teams = session.teams || [];
+  const seedQF = () => {
+    const seeds = {};
+    GROUPS.forEach(g => { const s = calcGroupStandings(session, g); seeds[g] = [s[0]?.team?.id, s[1]?.team?.id]; });
+    if (!seeds.A?.[0] || !seeds.B?.[0] || !seeds.C?.[0] || !seeds.D?.[0]) { alert("Need top 2 from each group first"); return; }
+    updateSession(s => ({ ...s, bracket: { qf: [
+      { id: uid("qf"), slot: 1, team1Id: seeds.A[0], team2Id: seeds.B[1], winner: null },
+      { id: uid("qf"), slot: 2, team1Id: seeds.C[0], team2Id: seeds.D[1], winner: null },
+      { id: uid("qf"), slot: 3, team1Id: seeds.B[0], team2Id: seeds.A[1], winner: null },
+      { id: uid("qf"), slot: 4, team1Id: seeds.D[0], team2Id: seeds.C[1], winner: null },
+    ], sf: [], final: null } }));
+  };
+  const lbl = (id) => { const t = teams.find(t => t.id === id); if (!t) return "—"; const p1 = state.players.find(p => p.id === t.p1Id)?.name?.split(" ")[0] || "?"; const p2 = state.players.find(p => p.id === t.p2Id)?.name?.split(" ")[0] || "?"; return `${p1} & ${p2}`; };
+
+  useEffect(() => {
+    const qfWinners = b.qf.filter(m => m.winner).map(m => m.winner === "team1" ? m.team1Id : m.team2Id);
+    if (qfWinners.length === 4 && (b.sf?.length || 0) < 2) {
+      updateSession(s => ({ ...s, bracket: { ...s.bracket, sf: [
+        { id: uid("sf"), slot: 1, team1Id: qfWinners[0], team2Id: qfWinners[1], winner: null },
+        { id: uid("sf"), slot: 2, team1Id: qfWinners[2], team2Id: qfWinners[3], winner: null },
+      ] } }));
+    }
+    const sfWinners = (b.sf || []).filter(m => m.winner).map(m => m.winner === "team1" ? m.team1Id : m.team2Id);
+    if (sfWinners.length === 2 && !b.final) {
+      updateSession(s => ({ ...s, bracket: { ...s.bracket, final: { id: uid("f"), team1Id: sfWinners[0], team2Id: sfWinners[1], winner: null } } }));
+    }
+  }, [JSON.stringify(b)]);
+
+  if (!b.qf || b.qf.length === 0) {
+    return <Card className="p-6 text-center border-dashed">
+      <I.swords className="mx-auto mb-3 text-stone-600" size={36} />
+      <div className="text-stone-300 font-semibold mb-1">No bracket yet</div>
+      {isAdmin && <><div className="text-stone-500 text-sm mb-4">Auto-seed from group standings</div><Btn onClick={seedQF}><I.bolt size={14} /> Auto-Seed</Btn></>}
+    </Card>;
+  }
+  const champId = b.final?.winner ? (b.final.winner === "team1" ? b.final.team1Id : b.final.team2Id) : null;
+  return (
+    <div className="space-y-4">
+      {champId && <Card className="p-4 text-center" style={{ background: "linear-gradient(135deg, rgba(251, 191, 36, 0.15), rgba(249, 115, 22, 0.08))", borderColor: "rgba(251, 191, 36, 0.4)" }}>
+        <I.crown size={32} className="mx-auto text-amber-400 mb-2" />
+        <div className="text-xs uppercase tracking-[0.3em] text-amber-400 font-bold mb-1">Champion</div>
+        <div className="font-display text-3xl text-stone-50">{lbl(champId)}</div>
+      </Card>}
+      <Card className="p-3">
+        <div className="flex items-center justify-between mb-2"><h3 className="font-display text-lg text-stone-200">QUARTERFINALS</h3><Pill color="orange">+1 each</Pill></div>
+        {isAdmin && <div className="text-[10px] text-amber-400 mb-2 flex items-center gap-1"><I.alert size={10} /> Tap to edit (for dropouts)</div>}
+        <div className="space-y-1.5">{b.qf.map(m => <BracketRow key={m.id} match={m} lbl={lbl} onClick={() => isAdmin && setEdit({ ...m, round: "qf" })} />)}</div>
+      </Card>
+      {b.sf?.length > 0 && <Card className="p-3">
+        <div className="flex items-center justify-between mb-2"><h3 className="font-display text-lg text-stone-200">SEMIFINALS</h3><Pill color="red">+2 each</Pill></div>
+        <div className="space-y-1.5">{b.sf.map(m => <BracketRow key={m.id} match={m} lbl={lbl} onClick={() => isAdmin && setEdit({ ...m, round: "sf" })} />)}</div>
+      </Card>}
+      {b.final && <Card className="p-3" style={{ borderColor: "rgba(251, 191, 36, 0.3)" }}>
+        <div className="flex items-center justify-between mb-2"><h3 className="font-display text-lg text-amber-400">🏆 FINAL</h3><Pill color="amber">+3 reach / +5 win</Pill></div>
+        <BracketRow match={b.final} lbl={lbl} onClick={() => isAdmin && setEdit({ ...b.final, round: "final" })} big />
+      </Card>}
+      {edit && <BracketEditModal match={edit} teams={teams} state={state} onClose={() => setEdit(null)} onSave={(d) => updateSession(s => { const nb = { ...s.bracket }; if (edit.round === "qf") nb.qf = nb.qf.map(m => m.id === edit.id ? { ...m, ...d } : m); else if (edit.round === "sf") nb.sf = nb.sf.map(m => m.id === edit.id ? { ...m, ...d } : m); else nb.final = { ...nb.final, ...d }; return { ...s, bracket: nb }; })} onReset={() => updateSession(s => ({ ...s, bracket: { qf: s.bracket.qf, sf: [], final: null } }))} />}
+    </div>
+  );
+}
+
+function BracketRow({ match, lbl, onClick, big }) {
+  const w = match.winner;
+  return <button onClick={onClick} className={`w-full ${big ? "p-3" : "p-2"} rounded-lg bg-stone-900/50 hover:bg-stone-800/70 text-left`}>
+    <div className="flex items-center gap-2">
+      <div className={`flex-1 ${big ? "text-base" : "text-sm"} truncate ${w === "team1" ? "text-emerald-400 font-bold" : "text-stone-300"}`}>{w === "team1" && <I.trophy size={big ? 14 : 11} className="inline mr-1" />}{lbl(match.team1Id)}</div>
+      <span className="text-stone-600 font-mono text-xs">vs</span>
+      <div className={`flex-1 ${big ? "text-base" : "text-sm"} truncate text-right ${w === "team2" ? "text-emerald-400 font-bold" : "text-stone-300"}`}>{lbl(match.team2Id)}{w === "team2" && <I.trophy size={big ? 14 : 11} className="inline ml-1" />}</div>
+    </div>
+  </button>;
+}
+
+function BracketEditModal({ match, teams, state, onClose, onSave, onReset }) {
+  const [t1, setT1] = useState(match.team1Id || "");
+  const [t2, setT2] = useState(match.team2Id || "");
+  const [w, setW] = useState(match.winner || "");
+  const lbl = (id) => { const t = teams.find(t => t.id === id); if (!t) return "?"; const p1 = state.players.find(p => p.id === t.p1Id)?.name?.split(" ")[0] || "?"; const p2 = state.players.find(p => p.id === t.p2Id)?.name?.split(" ")[0] || "?"; return `${p1} & ${p2}`; };
+  const titles = { qf: "QUARTERFINAL", sf: "SEMIFINAL", final: "FINAL" };
+  return <Modal open={true} onClose={onClose} title={`EDIT ${titles[match.round]}`}>
+    <div className="space-y-3">
+      <div className="text-xs text-amber-400 bg-amber-400/10 border border-amber-400/30 rounded-lg p-2 flex gap-2"><I.alert size={14} className="shrink-0 mt-0.5" /><span>Edit teams here for dropouts. May need to reset downstream rounds.</span></div>
+      <div><label className="text-xs text-stone-400 uppercase tracking-wider font-semibold mb-1 block">Team 1</label><select value={t1} onChange={e => setT1(e.target.value)} className="w-full bg-stone-900 border border-stone-700 rounded-lg px-3 py-2.5 text-stone-100"><option value="">— None —</option>{teams.filter(t => t.id !== t2).map(t => <option key={t.id} value={t.id}>{lbl(t.id)} (Group {t.group})</option>)}</select></div>
+      <div><label className="text-xs text-stone-400 uppercase tracking-wider font-semibold mb-1 block">Team 2</label><select value={t2} onChange={e => setT2(e.target.value)} className="w-full bg-stone-900 border border-stone-700 rounded-lg px-3 py-2.5 text-stone-100"><option value="">— None —</option>{teams.filter(t => t.id !== t1).map(t => <option key={t.id} value={t.id}>{lbl(t.id)} (Group {t.group})</option>)}</select></div>
+      {t1 && t2 && <div><label className="text-xs text-stone-400 uppercase tracking-wider font-semibold mb-1 block">Winner</label>
+        <div className="grid grid-cols-3 gap-2">
+          <button onClick={() => setW("team1")} className={`py-2 px-2 rounded-lg text-xs font-semibold ${w === "team1" ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40" : "bg-stone-900 text-stone-300 border border-stone-700"}`}>{lbl(t1)}</button>
+          <button onClick={() => setW("")} className={`py-2 px-2 rounded-lg text-xs font-semibold ${w === "" ? "bg-stone-700 text-stone-100" : "bg-stone-900 text-stone-500 border border-stone-800"}`}>Pending</button>
+          <button onClick={() => setW("team2")} className={`py-2 px-2 rounded-lg text-xs font-semibold ${w === "team2" ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40" : "bg-stone-900 text-stone-300 border border-stone-700"}`}>{lbl(t2)}</button>
+        </div></div>}
+      {match.round === "qf" && <Btn variant="secondary" className="w-full" onClick={() => { onReset(); onClose(); }}>Reset SFs + Final</Btn>}
+      <div className="flex gap-2 pt-2"><Btn variant="ghost" onClick={onClose}>Cancel</Btn><Btn onClick={() => { onSave({ team1Id: t1 || null, team2Id: t2 || null, winner: w || null }); onClose(); }}>Save</Btn></div>
+    </div>
+  </Modal>;
+}
+
+function LeaderboardView({ leaderboard, state, setOpenPlayerId }) {
+  const active = leaderboard.filter(l => l.stats.sessionsPlayed > 0);
+  const inactive = leaderboard.filter(l => l.stats.sessionsPlayed === 0);
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between"><h2 className="font-display text-3xl text-stone-100">LEADERBOARD</h2><Pill color="orange">{active.length} active</Pill></div>
+      {active.length === 0 ? <Card className="p-8 text-center border-dashed"><I.trophy className="mx-auto mb-3 text-stone-600" size={32} /><div className="text-stone-400">No results yet</div></Card>
+        : <div className="space-y-1.5">{active.map((e, i) => {
+          const medal = i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : null;
+          return <Card key={e.player.id} className="p-3" onClick={() => setOpenPlayerId(e.player.id)}>
+            <div className="flex items-center gap-3">
+              <div className="w-8 text-center">{medal ? <span className="text-2xl">{medal}</span> : <span className="font-mono text-stone-500 text-sm">{i + 1}</span>}</div>
+              <div className="flex-1 min-w-0">
+                <div className="font-semibold text-stone-100 truncate">{e.player.name}</div>
+                <div className="text-[10px] text-stone-500 mt-0.5 flex items-center gap-2"><span>{e.stats.sessionsPlayed} sess</span><span>·</span><span>{e.stats.groupWins}W</span>{e.stats.finalsWon > 0 && <><span>·</span><span className="text-amber-400 font-semibold">{e.stats.finalsWon}🏆</span></>}{e.breakdown.streakPts > 0 && <><span>·</span><span className="text-orange-400">🔥{e.breakdown.streakPts}</span></>}</div>
+              </div>
+              <div className="text-right"><div className="font-mono font-bold text-2xl" style={{ color: i === 0 ? "#fbbf24" : i < 3 ? "#f97316" : "#e7e5e4" }}>{e.totalPts}</div><div className="text-[9px] text-stone-500 uppercase">pts</div></div>
+            </div>
+          </Card>;
+        })}</div>}
+      {inactive.length > 0 && <details className="text-xs text-stone-500"><summary className="cursor-pointer py-2">+ {inactive.length} not yet playing</summary><div className="space-y-1 mt-2">{inactive.map(e => <div key={e.player.id} className="px-3 py-1.5 rounded bg-stone-900/40">{e.player.name}</div>)}</div></details>}
+    </div>
+  );
+}
+
+function PlayerDetail({ playerId, state, leaderboard, onClose }) {
+  const player = state.players.find(p => p.id === playerId);
+  const entry = leaderboard.find(l => l.player.id === playerId);
+  if (!player || !entry) return null;
+  const rank = leaderboard.findIndex(l => l.player.id === playerId) + 1;
+  const locked = getLockedPartners(playerId, state.sessions);
+  const lockedNames = Array.from(locked).map(id => state.players.find(p => p.id === id)?.name).filter(Boolean);
+  return <Modal open={true} onClose={onClose} title={player.name.toUpperCase()}>
+    <div className="space-y-4">
+      <div className="text-center py-3">
+        <div className="text-xs text-stone-500 uppercase tracking-wider mb-1">Rank #{rank}</div>
+        <div className="font-mono text-5xl font-bold" style={{ color: rank === 1 ? "#fbbf24" : rank <= 3 ? "#f97316" : "#fafaf9" }}>{entry.totalPts}</div>
+        <div className="text-xs text-stone-500 uppercase tracking-wider">total points</div>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <Card className="p-3"><div className="text-[10px] text-stone-500 uppercase tracking-wider mb-1">Match</div><div className="font-mono text-2xl font-bold text-stone-100">{entry.breakdown.matchPts}</div></Card>
+        <Card className="p-3"><div className="text-[10px] text-stone-500 uppercase tracking-wider mb-1">Knockout</div><div className="font-mono text-2xl font-bold text-red-400">{entry.breakdown.knockoutPts}</div></Card>
+        <Card className="p-3"><div className="text-[10px] text-stone-500 uppercase tracking-wider mb-1">Top of Group</div><div className="font-mono text-2xl font-bold text-amber-400">+{entry.breakdown.topOfGroup}</div></Card>
+        <Card className="p-3"><div className="text-[10px] text-stone-500 uppercase tracking-wider mb-1">🔥 Streak</div><div className="font-mono text-2xl font-bold text-orange-500">+{entry.breakdown.streakPts}</div></Card>
+      </div>
+      <Card className="p-3">
+        <div className="grid grid-cols-2 gap-3 text-sm">
+          <div><span className="text-stone-500">Sessions: </span><span className="text-stone-200 font-mono">{entry.stats.sessionsPlayed}</span></div>
+          <div><span className="text-stone-500">Group Wins: </span><span className="text-stone-200 font-mono">{entry.stats.groupWins}/{entry.stats.groupPlayed}</span></div>
+          <div><span className="text-stone-500">SFs: </span><span className="text-stone-200 font-mono">{entry.stats.sfReached}</span></div>
+          <div><span className="text-stone-500">Finals: </span><span className="text-amber-400 font-mono font-bold">{entry.stats.finalsWon}🏆 / {entry.stats.finalsReached}</span></div>
+        </div>
+      </Card>
+      {lockedNames.length > 0 && <Card className="p-3" style={{ borderColor: "rgba(220, 38, 38, 0.3)" }}>
+        <div className="flex items-center gap-2 mb-2"><I.lock size={14} className="text-red-400" /><div className="text-xs text-red-400 uppercase tracking-wider font-bold">Loyalty Lockout</div></div>
+        <div className="text-xs text-stone-400 mb-2">Won with — can't pair again:</div>
+        <div className="flex flex-wrap gap-1">{lockedNames.map(n => <Pill key={n} color="red">{n}</Pill>)}</div>
+      </Card>}
+    </div>
+  </Modal>;
+}
+
+function SettingsView({ state, update, setState, setTab, logout }) {
+  const [showRst, setShowRst] = useState(false);
+  const [showExp, setShowExp] = useState(false);
+  return (
+    <div className="space-y-4">
+      <h2 className="font-display text-3xl text-stone-100">SETTINGS</h2>
+      <Card className="p-4 space-y-3">
+        <div><label className="text-xs text-stone-400 uppercase tracking-wider font-semibold mb-1 block">Season Name</label><Input value={state.seasonName} onChange={v => update(s => ({ ...s, seasonName: v }))} /></div>
+        <div><label className="text-xs text-stone-400 uppercase tracking-wider font-semibold mb-1 block">Tagline</label><Input value={state.seasonTagline} onChange={v => update(s => ({ ...s, seasonTagline: v }))} /></div>
+      </Card>
+      <Card className="p-4">
+        <h3 className="font-display text-lg text-stone-200 mb-3">POINT SYSTEM</h3>
+        <div className="space-y-2 text-sm">
+          <div className="flex justify-between"><span className="text-stone-300">✅ Win</span><span className="font-mono text-emerald-400">+3</span></div>
+          <div className="flex justify-between"><span className="text-stone-300">🎯 Tiebreak Loss</span><span className="font-mono text-amber-400">+2</span></div>
+          <div className="flex justify-between"><span className="text-stone-300">🤝 Competitive Loss</span><span className="font-mono text-orange-400">+1</span></div>
+          <div className="flex justify-between"><span className="text-stone-300">❌ 6-0/6-1 Loss</span><span className="font-mono text-stone-500">0</span></div>
+          <div className="border-t border-stone-800 my-2" />
+          <div className="flex justify-between"><span className="text-stone-300">🥇 Top of Group</span><span className="font-mono text-amber-400">+1</span></div>
+          <div className="flex justify-between"><span className="text-stone-300">🎯 Reach QF</span><span className="font-mono text-orange-400">+1</span></div>
+          <div className="flex justify-between"><span className="text-stone-300">🔥 Reach SF</span><span className="font-mono text-orange-400">+2</span></div>
+          <div className="flex justify-between"><span className="text-stone-300">⚔️ Reach Final</span><span className="font-mono text-red-400">+3</span></div>
+          <div className="flex justify-between"><span className="text-stone-300">🏆 Win Final</span><span className="font-mono text-amber-400 font-bold">+5</span></div>
+          <div className="border-t border-stone-800 my-2" />
+          <div className="flex justify-between"><span className="text-stone-300">🔥 Streak Max</span><span className="font-mono text-orange-500 font-bold">+5</span></div>
+        </div>
+      </Card>
+      <Card className="p-4">
+        <h3 className="font-display text-lg text-stone-200 mb-3">DATA</h3>
+        <div className="space-y-2">
+          <Btn variant="secondary" className="w-full" onClick={() => setShowExp(true)}><I.download size={14} /> Export JSON</Btn>
+          <Btn variant="danger" className="w-full" onClick={() => setShowRst(true)}><I.trash size={14} /> Reset Everything</Btn>
+          <Btn variant="ghost" className="w-full" onClick={logout}>Sign out of organizer mode</Btn>
+        </div>
+      </Card>
+      <button onClick={() => setTab("dashboard")} className="w-full py-3 text-sm text-stone-500">← Back to Dashboard</button>
+      {showRst && <Modal open={true} onClose={() => setShowRst(false)} title="RESET ALL?">
+        <div className="space-y-3"><div className="text-sm text-stone-300">Permanently delete everything?</div>
+          <div className="flex gap-2"><Btn variant="ghost" onClick={() => setShowRst(false)}>Cancel</Btn><Btn variant="danger" onClick={() => { setState(initState()); setShowRst(false); setTab("dashboard"); }}>Reset</Btn></div>
+        </div></Modal>}
+      {showExp && <Modal open={true} onClose={() => setShowExp(false)} title="EXPORT">
+        <div className="space-y-3"><div className="text-xs text-stone-400">Copy to back up:</div>
+          <textarea readOnly value={JSON.stringify(state, null, 2)} rows={10} className="w-full bg-stone-900 border border-stone-700 rounded-lg px-3 py-2.5 text-stone-100 font-mono text-xs" />
+          <Btn className="w-full" onClick={() => navigator.clipboard?.writeText(JSON.stringify(state, null, 2))}>Copy</Btn>
+        </div></Modal>}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
