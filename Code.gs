@@ -4,31 +4,38 @@
 //
 // SETUP (one-time):
 //   1. Open your Google Sheet → Extensions → Apps Script
+//      (or go to script.google.com → new project)
 //   2. Paste this entire file, replacing any existing code
-//   3. Change ADMIN_PIN below to a secret 4–8 digit code
+//   3. Set your admin PIN (see step below — do NOT leave it as "1234")
 //   4. Click Deploy → New deployment → Web app
 //        Execute as: Me
 //        Who has access: Anyone
-//   5. Copy the deployment URL and paste it into index.html
-//        where it says "PASTE_YOUR_APPS_SCRIPT_URL_HERE"
-//   6. Re-deploy (create a new deployment) whenever you update this file
+//   5. Copy the deployment URL and paste it into index.html line 49
+//   6. Every time you change this file → Deploy → New deployment again
+//
+// SETTING YOUR ADMIN PIN (without touching the code):
+//   Apps Script → Project Settings (gear icon) → Script Properties
+//   → Add property:  Name = ADMIN_PIN   Value = your-secret-pin
+//   If no Script Property is set, the default PIN below is used.
 //
 // ═══════════════════════════════════════════════════════════════
 
-const ADMIN_PIN  = "1234";        // ← change this before deploying
-const SHEET_NAME = "JuneFury";    // sheet tab name (auto-created if absent)
-const STATE_CELL = "A1";          // single cell that stores JSON state
+const DEFAULT_PIN = "1234"; // fallback if ADMIN_PIN script property not set
+const STATE_KEY   = "june_fury_state";
 
 // ── helpers ────────────────────────────────────────────────────
 
-function getSheet() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = ss.getSheetByName(SHEET_NAME);
-  if (!sheet) {
-    sheet = ss.insertSheet(SHEET_NAME);
-    sheet.hideSheet();            // keep the sheet tidy and hidden
-  }
-  return sheet;
+function getPin() {
+  return PropertiesService.getScriptProperties().getProperty("ADMIN_PIN") || DEFAULT_PIN;
+}
+
+function loadState() {
+  const raw = PropertiesService.getScriptProperties().getProperty(STATE_KEY);
+  return raw ? JSON.parse(raw) : null;
+}
+
+function persistState(state) {
+  PropertiesService.getScriptProperties().setProperty(STATE_KEY, JSON.stringify(state));
 }
 
 function jsonp(callback, payload) {
@@ -37,42 +44,50 @@ function jsonp(callback, payload) {
     .setMimeType(ContentService.MimeType.JAVASCRIPT);
 }
 
-function cors(payload) {
+function respond(callback, payload) {
+  // Always use JSONP when a callback is present (GET requests from the app).
+  // Falls back to plain JSON for direct browser testing.
+  if (callback) return jsonp(callback, payload);
   return ContentService.createTextOutput(JSON.stringify(payload))
     .setMimeType(ContentService.MimeType.JSON);
 }
 
 // ── GET handler ────────────────────────────────────────────────
+// Handles: getState, unlock, saveState
+// saveState via GET avoids the Apps Script POST→redirect issue that
+// causes fetch(no-cors) to silently drop the request body.
 
 function doGet(e) {
-  const params   = e.parameter || {};
-  const action   = params.action   || "";
-  const callback = params.callback || "";
-
-  const respond = (payload) =>
-    callback ? jsonp(callback, payload) : cors(payload);
+  const p        = e.parameter || {};
+  const action   = p.action   || "";
+  const callback = p.callback || "";
 
   try {
     if (action === "getState") {
-      const raw = getSheet().getRange(STATE_CELL).getValue();
-      if (!raw) return respond({ ok: true, state: null });
-      const state = JSON.parse(raw);
-      return respond({ ok: true, state });
+      const state = loadState();
+      return respond(callback, { ok: true, state });
     }
 
     if (action === "unlock") {
-      const ok = (params.pin || "").trim() === ADMIN_PIN;
-      return respond({ ok });
+      const ok = (p.pin || "").trim() === getPin();
+      return respond(callback, { ok });
     }
 
-    return respond({ ok: false, error: "Unknown action: " + action });
+    if (action === "saveState") {
+      const raw = p.state || "";
+      if (!raw) return respond(callback, { ok: false, error: "Missing state" });
+      persistState(JSON.parse(decodeURIComponent(raw)));
+      return respond(callback, { ok: true });
+    }
+
+    return respond(callback, { ok: false, error: "Unknown action: " + action });
 
   } catch (err) {
-    return respond({ ok: false, error: err.message });
+    return respond(callback, { ok: false, error: err.message });
   }
 }
 
-// ── POST handler ───────────────────────────────────────────────
+// ── POST handler (kept as fallback) ───────────────────────────
 
 function doPost(e) {
   try {
@@ -81,13 +96,16 @@ function doPost(e) {
 
     if (action === "saveState") {
       if (!body.state) throw new Error("Missing state");
-      getSheet().getRange(STATE_CELL).setValue(JSON.stringify(body.state));
-      return cors({ ok: true });
+      persistState(body.state);
+      return ContentService.createTextOutput(JSON.stringify({ ok: true }))
+        .setMimeType(ContentService.MimeType.JSON);
     }
 
-    return cors({ ok: false, error: "Unknown action: " + action });
+    return ContentService.createTextOutput(JSON.stringify({ ok: false, error: "Unknown action" }))
+      .setMimeType(ContentService.MimeType.JSON);
 
   } catch (err) {
-    return cors({ ok: false, error: err.message });
+    return ContentService.createTextOutput(JSON.stringify({ ok: false, error: err.message }))
+      .setMimeType(ContentService.MimeType.JSON);
   }
 }
