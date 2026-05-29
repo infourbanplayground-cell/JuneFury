@@ -71,7 +71,7 @@ async function apiPost(body) {
   // Use GET+JSONP for saves — Apps Script redirects POST requests which causes
   // fetch(no-cors) to silently drop the body. JSONP GET is reliable.
   if (body.action === "saveState") {
-    return apiGet("saveState", { state: encodeURIComponent(JSON.stringify(body.state)) });
+    return apiGet("saveState", { state: JSON.stringify(body.state) });
   }
   if (!API_URL || API_URL.includes("PASTE_YOUR")) throw new Error("API not configured");
   await fetch(API_URL, {
