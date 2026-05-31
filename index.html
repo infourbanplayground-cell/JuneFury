@@ -115,30 +115,34 @@ function toB64url(str) {
 }
 
 async function saveStateChunked(state) {
-  const json = JSON.stringify(state);
-  // Encode ENTIRE JSON first → safe string, then split into 3000-char pieces.
-  // Arabic JSON chunks encoded per-piece could hit 8000 base64 chars (2000×3 UTF-8×4/3).
-  // Splitting the already-encoded string guarantees exactly 3000 URL-safe chars per chunk.
-  const b64 = toB64url(json);
-  const CHUNK = 1500;
+  const b64 = toB64url(JSON.stringify(state));
+  // 800-char slices of the base64url string → URL ≈ 1000 chars, safe under any server limit.
+  // All chunks sent in parallel → total latency = one round trip regardless of count.
+  const CHUNK = 800;
   const total = Math.ceil(b64.length / CHUNK);
   const sid = "s" + Date.now().toString(36);
-  for (let i = 0; i < total; i++) {
+
+  async function sendChunk(i) {
     const chunk = b64.slice(i * CHUNK, (i + 1) * CHUNK);
-    let r, lastErr;
     for (let attempt = 0; attempt < 3; attempt++) {
-      try { r = await apiGet("saveChunk", { sid, i, total, chunk, b64: 1 }); lastErr = null; break; }
-      catch (e) { lastErr = e; await new Promise(res => setTimeout(res, 400 * (attempt + 1))); }
-    }
-    if (lastErr) throw new Error("Network error saving chunk " + (i + 1) + "/" + total + " — check connection");
-    if (r && r.ok === false && !r.pending) {
-      const msg = r.error || "Unknown";
-      if (msg.includes("Unknown action") || msg.includes("b64") || msg.includes("decodeB64")) {
-        throw new Error("⚠️ Code.gs is outdated — paste the new Code.gs and redeploy (New version)");
+      try {
+        const r = await apiGet("saveChunk", { sid, i, total, chunk, b64: 1 });
+        if (r && r.ok === false && !r.pending) {
+          const msg = r.error || "Unknown";
+          if (msg.includes("Unknown action") || msg.includes("decodeB64")) {
+            throw new Error("⚠️ Code.gs outdated — redeploy with new version");
+          }
+          throw new Error("Backend: " + msg);
+        }
+        return;
+      } catch (e) {
+        if (attempt === 2) throw e;
+        await new Promise(res => setTimeout(res, 300 * (attempt + 1)));
       }
-      throw new Error("Backend error: " + msg);
     }
   }
+
+  await Promise.all(Array.from({ length: total }, (_, i) => sendChunk(i)));
   return { ok: true };
 }
 
