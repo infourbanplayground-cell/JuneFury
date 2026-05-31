@@ -85,7 +85,8 @@ function apiGet(action, params = {}) {
     const qs = new URLSearchParams({ ...params, action, callback: cb });
     const s = document.createElement("script");
     s.src = API_URL + "?" + qs.toString();
-    s.onerror = () => { cleanup(); reject(new Error("Network error")); };
+    console.log("[JF]", action, "url_len=" + s.src.length);
+    s.onerror = () => { cleanup(); reject(new Error("Network error (url_len=" + s.src.length + ")")); };
     document.body.appendChild(s);
   });
 }
@@ -119,7 +120,7 @@ async function saveStateChunked(state) {
   // Arabic JSON chunks encoded per-piece could hit 8000 base64 chars (2000×3 UTF-8×4/3).
   // Splitting the already-encoded string guarantees exactly 3000 URL-safe chars per chunk.
   const b64 = toB64url(json);
-  const CHUNK = 3000;
+  const CHUNK = 1500;
   const total = Math.ceil(b64.length / CHUNK);
   const sid = "s" + Date.now().toString(36);
   for (let i = 0; i < total; i++) {
