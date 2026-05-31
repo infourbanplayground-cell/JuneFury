@@ -25,7 +25,8 @@ function doGet(e) {
         e.parameter.sid,
         parseInt(e.parameter.i || 0),
         parseInt(e.parameter.total || 1),
-        e.parameter.chunk || ""
+        e.parameter.chunk || "",
+        e.parameter.b64 === "1"
       );
     } else result = { ok: false, error: "Unknown action: " + action };
   } catch (err) {
@@ -51,25 +52,39 @@ function doPost(e) {
 
 // ─── CHUNK HANDLER ────────────────────────────────────────────
 
-function handleChunk(sid, idx, total, chunk) {
+function decodeB64url(s) {
+  // URL-safe base64 → UTF-8 string
+  s = s.replace(/-/g, '+').replace(/_/g, '/');
+  while (s.length % 4) s += '=';
+  var bytes = Utilities.base64Decode(s);
+  return Utilities.newBlob(bytes).getDataAsString('UTF-8');
+}
+
+function handleChunk(sid, idx, total, chunk, isB64) {
   if (!sid) return { ok: false, error: "Missing sid" };
   const props = PropertiesService.getScriptProperties();
+  // Store raw (encoded) chunk — decoded at assembly time
   props.setProperty("CH_" + sid + "_" + idx, chunk);
+  // Remember encoding flag on first chunk
+  if (idx === 0) props.setProperty("CH_" + sid + "_b64", isB64 ? "1" : "0");
 
   // Check if all chunks have arrived
+  for (var i = 0; i < total; i++) {
+    if (props.getProperty("CH_" + sid + "_" + i) === null) return { ok: true, pending: true };
+  }
+
+  // All chunks received — assemble, decode, save
+  var useB64 = props.getProperty("CH_" + sid + "_b64") === "1";
   var assembled = "";
   for (var i = 0; i < total; i++) {
     var c = props.getProperty("CH_" + sid + "_" + i);
-    if (c === null) return { ok: true, pending: true };
-    assembled += c;
-  }
-
-  // All chunks received — save and clean up
-  var state = JSON.parse(assembled);
-  writeState(state);
-  for (var i = 0; i < total; i++) {
+    assembled += useB64 ? decodeB64url(c) : c;
     props.deleteProperty("CH_" + sid + "_" + i);
   }
+  props.deleteProperty("CH_" + sid + "_b64");
+
+  var state = JSON.parse(assembled);
+  writeState(state);
   return { ok: true };
 }
 

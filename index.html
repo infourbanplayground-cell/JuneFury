@@ -13,7 +13,7 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Anton&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Archivo:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,700;1,800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
 
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
@@ -21,8 +21,31 @@
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
 <style>
+  :root {
+    --volt: #E4FF3B;
+    --blue: #33A1FF;
+    --blue-deep: #1E63D6;
+    --orange: #FF5E1E;
+    --cream: #FFF4EC;
+    --line: rgba(255,236,224,.10);
+    --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
   html, body { background: #0a0807; color: #fafaf9; margin: 0; padding: 0; min-height: 100%; }
-  body { font-family: 'Manrope', system-ui, sans-serif; -webkit-tap-highlight-color: transparent; overscroll-behavior-y: none; }
+  body {
+    font-family: 'Archivo', system-ui, sans-serif;
+    -webkit-tap-highlight-color: transparent;
+    overscroll-behavior-y: none;
+    background:
+      radial-gradient(ellipse 80% 50% at 0% 0%, rgba(51,161,255,.09), transparent 55%),
+      radial-gradient(ellipse 100% 70% at 100% 5%, rgba(255,94,30,.11), transparent 55%),
+      radial-gradient(ellipse 70% 50% at 15% 100%, rgba(138,30,8,.35), transparent 60%),
+      #0a0807;
+  }
+  body::after {
+    content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    opacity: .35; mix-blend-mode: overlay; background-image: var(--grain);
+  }
+  #root { position: relative; z-index: 1; }
   .font-display { font-family: 'Anton', sans-serif; letter-spacing: 0.02em; }
   .font-mono { font-family: 'JetBrains Mono', monospace; }
   * { -webkit-touch-callout: none; }
@@ -81,34 +104,35 @@ async function apiPost(body) {
   return { ok: true };
 }
 
+// Base64url encode: UTF-8 safe, URL-safe chars only (no percent-encoding).
+// Arabic/special chars in JSON expand at 1.33× instead of up to 6× with raw URL encoding.
+function toB64url(str) {
+  const bytes = new TextEncoder().encode(str);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+
 async function saveStateChunked(state) {
   const json = JSON.stringify(state);
-  // Single-request path: JSON must stay under ~2500 chars so URL-encoded form
-  // fits within Google's ~8KB URL limit (JSON structural chars encode to 3× each).
-  if (json.length < 2500) {
-    try {
-      const r = await apiGet("saveState", { state: json });
-      if (r && r.ok) return r;
-      // Backend returned ok:false (e.g. 9KB PropertiesService limit) — fall through
-    } catch (e) { /* URL too long — fall through to chunked */ }
-  }
-  // Chunked path — requires updated Code.gs with saveChunk handler.
-  // 3500 raw chars URL-encode to ~6KB, safely under Google's 8KB URL limit.
-  const CHUNK = 3500;
+  // 2000-char JSON chunks encoded as base64url:
+  // worst-case Arabic (3 bytes/char): 2000×3=6000 UTF-8 bytes → 8000 base64 chars.
+  // base64url chars are all URL-safe → NO percent-encoding → stays under 8KB URL limit.
+  const CHUNK = 2000;
   const total = Math.ceil(json.length / CHUNK);
   const sid = "s" + Date.now().toString(36);
   for (let i = 0; i < total; i++) {
+    const chunk = toB64url(json.slice(i * CHUNK, (i + 1) * CHUNK));
     let r, lastErr;
-    // Retry each chunk twice to ride out transient network blips
     for (let attempt = 0; attempt < 3; attempt++) {
-      try { r = await apiGet("saveChunk", { sid, i, total, chunk: json.slice(i * CHUNK, (i + 1) * CHUNK) }); lastErr = null; break; }
-      catch (e) { lastErr = e; }
+      try { r = await apiGet("saveChunk", { sid, i, total, chunk, b64: 1 }); lastErr = null; break; }
+      catch (e) { lastErr = e; await new Promise(res => setTimeout(res, 400 * (attempt + 1))); }
     }
-    if (lastErr) throw new Error("Network error saving chunk " + (i + 1) + "/" + total);
+    if (lastErr) throw new Error("Network error saving chunk " + (i + 1) + "/" + total + " — check connection");
     if (r && r.ok === false && !r.pending) {
-      const msg = r.error || "saveChunk not recognised";
-      if (msg.includes("Unknown action")) {
-        throw new Error("⚠️ Code.gs is outdated — paste the new Code.gs in Apps Script and redeploy (New version)");
+      const msg = r.error || "Unknown";
+      if (msg.includes("Unknown action") || msg.includes("b64") || msg.includes("decodeB64")) {
+        throw new Error("⚠️ Code.gs is outdated — paste the new Code.gs and redeploy (New version)");
       }
       throw new Error("Backend error: " + msg);
     }
@@ -577,7 +601,7 @@ function App() {
         <div className="max-w-3xl mx-auto grid grid-cols-4 px-2 py-1.5">
           {[{id:"dashboard",icon:I.flame,label:"Home"},{id:"sessions",icon:I.calendar,label:"Sessions"},{id:"leaderboard",icon:I.trophy,label:"Rank"},{id:"players",icon:I.users,label:"Players"}].map(t => {
             const A = t.icon;
-            return <button key={t.id} onClick={() => setTab(t.id)} className={`flex flex-col items-center gap-0.5 py-2 rounded-lg ${tab === t.id ? "text-orange-500" : "text-stone-500"}`}>
+            return <button key={t.id} onClick={() => setTab(t.id)} className={`flex flex-col items-center gap-0.5 py-2 rounded-lg transition-colors ${tab === t.id ? "" : "text-stone-500"}`} style={tab === t.id ? { color: "var(--blue)" } : {}}>
               <A size={20} /><span className="text-[10px] font-semibold tracking-wide uppercase">{t.label}</span>
             </button>;
           })}
@@ -801,7 +825,7 @@ function DashboardView({ state, leaderboard, setTab, setOpenSessionId, isAdmin }
           {/* Double Points */}
           <div className="rounded-xl p-3.5" style={{ background: "linear-gradient(135deg, rgba(220,38,38,0.12), rgba(249,115,22,0.06))", border: "1px solid rgba(220,38,38,0.25)" }}>
             <div className="flex items-center gap-2.5 mb-1.5">
-              <div className="px-2.5 py-0.5 rounded-md font-display text-stone-950 text-xs font-bold shrink-0" style={{ background: "linear-gradient(135deg, #fbbf24, #dc2626)" }}>2X</div>
+              <div className="px-2.5 py-0.5 rounded-md font-display text-stone-950 text-xs font-bold shrink-0" style={{ background: "var(--volt)", color: "#0a0807" }}>2X</div>
               <span className="text-stone-200 font-bold text-sm">Last Two Sessions</span>
             </div>
             <div className="text-xs text-stone-400 leading-relaxed">All points doubled — wins, knockouts, top of group. <span className="text-amber-300 font-semibold">Streak bonus is NOT doubled</span> (stays max +5).</div>
@@ -1089,7 +1113,7 @@ function SessionsView({ state, update, setOpenSessionId, isAdmin }) {
                 <div className="flex items-center gap-2 mb-1 flex-wrap">
                   <h3 className="font-display text-xl text-stone-100 truncate">{s.name}</h3>
                   <Pill color={s.completed ? "green" : "orange"}>{s.completed ? "Done" : "Active"}</Pill>
-                  {s.doublePoints && <div className="px-2 py-0.5 rounded font-display text-stone-950 text-xs font-bold" style={{ background: "linear-gradient(135deg, #fbbf24, #dc2626)" }}>2X</div>}
+                  {s.doublePoints && <div className="px-2 py-0.5 rounded font-display text-stone-950 text-xs font-bold" style={{ background: "var(--volt)", color: "#0a0807" }}>2X</div>}
                 </div>
                 <div className="text-xs text-stone-500">{s.date ? new Date(s.date).toLocaleDateString("en-GB", { weekday: "short", month: "short", day: "numeric" }) : "No date"} · {s.teams?.length || 0} teams · {(s.groupMatches || []).filter(m => m.winner).length} matches</div>
               </div>
@@ -1143,7 +1167,7 @@ function SessionDetail({ session, state, isAdmin, onClose, updateSession, delete
         <div className="flex-1 min-w-0 text-center">
           <div className="flex items-center justify-center gap-2">
             <div className="font-display text-xl text-stone-100 truncate">{session.name}</div>
-            {session.doublePoints && <div className="px-1.5 py-0.5 rounded font-display text-stone-950 text-[10px] font-bold shrink-0" style={{ background: "linear-gradient(135deg, #fbbf24, #dc2626)" }}>2X</div>}
+            {session.doublePoints && <div className="px-1.5 py-0.5 rounded font-display text-stone-950 text-[10px] font-bold shrink-0" style={{ background: "var(--volt)", color: "#0a0807" }}>2X</div>}
           </div>
           <div className="text-[10px] text-stone-500 uppercase tracking-wider">{session.date ? new Date(session.date).toLocaleDateString() : "No date"}</div>
         </div>
@@ -1175,7 +1199,7 @@ function SessionDetail({ session, state, isAdmin, onClose, updateSession, delete
           </div>
           <div className="flex items-center justify-between p-3 rounded-lg" style={{ background: session.doublePoints ? "linear-gradient(135deg, rgba(220, 38, 38, 0.15), rgba(249, 115, 22, 0.08))" : "#1c1917", border: session.doublePoints ? "1px solid rgba(220, 38, 38, 0.3)" : "1px solid transparent" }}>
             <div className="flex items-center gap-2">
-              <div className="px-1.5 py-0.5 rounded font-display text-stone-950 text-[10px] font-bold" style={{ background: "linear-gradient(135deg, #fbbf24, #dc2626)" }}>2X</div>
+              <div className="px-1.5 py-0.5 rounded font-display text-stone-950 text-[10px] font-bold" style={{ background: "var(--volt)", color: "#0a0807" }}>2X</div>
               <div>
                 <div className="text-sm text-stone-200 font-semibold">Double Points</div>
                 <div className="text-[10px] text-stone-500">Everything ×2 except streak</div>
@@ -1249,7 +1273,7 @@ function TeamsTab({ session, state, updateSession, isAdmin, leaderboard }) {
         <Card key={g} className="p-3">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-md flex items-center justify-center font-display text-stone-950 font-bold" style={{ background: "linear-gradient(135deg, #fbbf24, #f97316)" }}>{g}</div>
+              <div className="w-7 h-7 rounded-md flex items-center justify-center font-display text-stone-950 font-bold" style={{ background: "var(--volt)", color: "#0a0807" }}>{g}</div>
               <span className="font-semibold text-stone-200">Group {g}</span>
             </div>
             <span className="text-xs text-stone-500 font-mono">{byGroup[g].length} / 4</span>
@@ -1316,7 +1340,7 @@ function GroupsTab({ session, state, updateSession, isAdmin }) {
         return (
           <Card key={g} className="p-3">
             <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2"><div className="w-7 h-7 rounded-md flex items-center justify-center font-display text-stone-950 font-bold" style={{ background: "linear-gradient(135deg, #fbbf24, #f97316)" }}>{g}</div><span className="font-semibold text-stone-200">Group {g}</span></div>
+              <div className="flex items-center gap-2"><div className="w-7 h-7 rounded-md flex items-center justify-center font-display text-stone-950 font-bold" style={{ background: "var(--volt)", color: "#0a0807" }}>{g}</div><span className="font-semibold text-stone-200">Group {g}</span></div>
               {isAdmin && teams.length >= 2 && <Btn size="sm" variant="secondary" onClick={() => setAdd(g)}><I.plus size={12} /> Match</Btn>}
             </div>
             {standings.length > 0 && <div className="mb-3 space-y-1">{standings.map((s, i) => {
@@ -1489,7 +1513,7 @@ function BracketTab({ session, state, updateSession, isAdmin }) {
 
 function SeedBadge({ seed }) {
   if (!seed) return null;
-  return <span className="inline-flex items-center justify-center px-1.5 py-0.5 rounded text-[9px] font-bold font-mono text-stone-950 shrink-0" style={{ background: "linear-gradient(135deg, #fbbf24, #f97316)" }}>{seed}</span>;
+  return <span className="inline-flex items-center justify-center px-1.5 py-0.5 rounded text-[9px] font-bold font-mono shrink-0" style={{ background: "var(--volt)", color: "#0a0807" }}>{seed}</span>;
 }
 function BracketRow({ match, lbl, onClick, big }) {
   const w = match.winner;
