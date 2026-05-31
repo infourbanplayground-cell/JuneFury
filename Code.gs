@@ -73,17 +73,17 @@ function handleChunk(sid, idx, total, chunk, isB64) {
     if (props.getProperty("CH_" + sid + "_" + i) === null) return { ok: true, pending: true };
   }
 
-  // All chunks received — assemble, decode, save
+  // All chunks received — concatenate pieces (they form one b64url string), decode once
   var useB64 = props.getProperty("CH_" + sid + "_b64") === "1";
   var assembled = "";
   for (var i = 0; i < total; i++) {
-    var c = props.getProperty("CH_" + sid + "_" + i);
-    assembled += useB64 ? decodeB64url(c) : c;
+    assembled += props.getProperty("CH_" + sid + "_" + i);
     props.deleteProperty("CH_" + sid + "_" + i);
   }
   props.deleteProperty("CH_" + sid + "_b64");
 
-  var state = JSON.parse(assembled);
+  var json = useB64 ? decodeB64url(assembled) : assembled;
+  var state = JSON.parse(json);
   writeState(state);
   return { ok: true };
 }
