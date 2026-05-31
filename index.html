@@ -22,28 +22,39 @@
 
 <style>
   :root {
+    --ink: #0A0807;
+    --ink2: #140C08;
     --volt: #E4FF3B;
+    --orange: #FF5E1E;
+    --orange-br: #FF8A3D;
+    --red: #FF2A24;
+    --ember: #8A1E08;
     --blue: #33A1FF;
     --blue-deep: #1E63D6;
-    --orange: #FF5E1E;
+    --blue-soft: #7FC4FF;
+    --gold: #FFC24B;
     --cream: #FFF4EC;
-    --line: rgba(255,236,224,.10);
+    --muted: #C7A192;
+    --muted2: #8C7167;
+    --line: rgba(255,236,224,.12);
     --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   }
-  html, body { background: #0a0807; color: #fafaf9; margin: 0; padding: 0; min-height: 100%; }
+  html, body { background: var(--ink); color: var(--cream); margin: 0; padding: 0; min-height: 100%; }
   body {
     font-family: 'Archivo', system-ui, sans-serif;
     -webkit-tap-highlight-color: transparent;
     overscroll-behavior-y: none;
     background:
-      radial-gradient(ellipse 80% 50% at 0% 0%, rgba(51,161,255,.09), transparent 55%),
-      radial-gradient(ellipse 100% 70% at 100% 5%, rgba(255,94,30,.11), transparent 55%),
-      radial-gradient(ellipse 70% 50% at 15% 100%, rgba(138,30,8,.35), transparent 60%),
-      #0a0807;
+      radial-gradient(95% 60% at 4% 2%, rgba(51,161,255,.18), transparent 52%),
+      radial-gradient(120% 80% at 82% 10%, rgba(255,94,30,.20), transparent 55%),
+      radial-gradient(130% 90% at 18% 108%, rgba(138,30,8,.5), transparent 60%),
+      radial-gradient(80% 60% at 100% 104%, rgba(30,99,214,.16), transparent 55%),
+      linear-gradient(180deg,#0a0a0e 0%, #0A0807 46%, #050405 100%);
+    background-attachment: fixed;
   }
   body::after {
     content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 0;
-    opacity: .35; mix-blend-mode: overlay; background-image: var(--grain);
+    opacity: .55; mix-blend-mode: overlay; background-image: var(--grain);
   }
   #root { position: relative; z-index: 1; }
   .font-display { font-family: 'Anton', sans-serif; letter-spacing: 0.02em; }
@@ -54,7 +65,10 @@
   ::-webkit-scrollbar-track { background: #1c1917; }
   ::-webkit-scrollbar-thumb { background: #44403c; border-radius: 3px; }
   .splash { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: #0a0807; z-index: 999; }
-  .splash .fire { font-family: 'Anton', sans-serif; font-size: 3rem; background: linear-gradient(180deg, #fbbf24, #f97316, #dc2626); -webkit-background-clip: text; background-clip: text; color: transparent; animation: pulse 1.2s ease-in-out infinite; }
+  .splash .fire { font-family: 'Anton', sans-serif; font-size: 3rem; letter-spacing: .02em; background: linear-gradient(178deg,#FFC24B 2%, #FF8A3D 30%, #FF5E1E 58%, #FF2A24 100%); -webkit-background-clip: text; background-clip: text; color: transparent; animation: pulse 1.2s ease-in-out infinite; }
+  .fury-grad { background: linear-gradient(178deg,#FFC24B 2%, #FF8A3D 30%, #FF5E1E 58%, #FF2A24 100%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent; }
+  .kicker { font-family: 'Archivo', sans-serif; font-weight: 800; letter-spacing: .34em; text-transform: uppercase; color: var(--blue); font-size: 11px; display: inline-flex; align-items: center; gap: 10px; }
+  .kicker::before { content: ''; width: 28px; height: 2px; background: var(--blue); box-shadow: 0 0 14px rgba(51,161,255,.6); border-radius: 2px; }
   @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 </style>
 </head>
@@ -545,8 +559,8 @@ function App() {
           <div className="flex items-center gap-3 min-w-0">
             <UPLogo size={40} />
             <div className="min-w-0">
-              <div className="font-display text-2xl leading-none truncate" style={{ background: "linear-gradient(180deg, #fbbf24 0%, #f97316 45%, #dc2626 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>{state.seasonName}</div>
-              <div className="text-[10px] text-stone-500 uppercase tracking-widest font-semibold mt-0.5 truncate">{state.seasonSubtitle || "Urban Playground"}</div>
+              <div className="font-display text-2xl leading-none truncate fury-grad">{state.seasonName}</div>
+              <div className="text-[10px] uppercase tracking-widest font-extrabold mt-0.5 truncate" style={{ color: "var(--blue)", letterSpacing: ".22em" }}>{state.seasonSubtitle || "Urban Playground"}</div>
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -566,8 +580,8 @@ function App() {
       </main>
 
       <nav className="fixed bottom-0 inset-x-0 z-30 border-t border-stone-800/80 backdrop-blur-xl" style={{ background: "rgba(10, 8, 7, 0.92)" }}>
-        <div className={`max-w-3xl mx-auto grid ${isAdmin ? "grid-cols-4" : "grid-cols-3"} px-2 py-1.5`}>
-          {[{id:"dashboard",icon:I.flame,label:"Home"},{id:"sessions",icon:I.calendar,label:"Sessions"},{id:"leaderboard",icon:I.trophy,label:"Rank"},{id:"players",icon:I.users,label:"Players",adminOnly:true}].filter(t => !t.adminOnly || isAdmin).map(t => {
+        <div className="max-w-3xl mx-auto grid grid-cols-3 px-2 py-1.5">
+          {[{id:"dashboard",icon:I.flame,label:"Home"},{id:"sessions",icon:I.calendar,label:"Sessions"},{id:"leaderboard",icon:I.trophy,label:"Rank"}].map(t => {
             const A = t.icon;
             return <button key={t.id} onClick={() => setTab(t.id)} className={`flex flex-col items-center gap-0.5 py-2 rounded-lg transition-colors ${tab === t.id ? "" : "text-stone-500"}`} style={tab === t.id ? { color: "var(--volt)" } : {}}>
               <A size={20} /><span className="text-[10px] font-semibold tracking-wide uppercase">{t.label}</span>
@@ -613,10 +627,11 @@ function LoginModal({ onClose, onLogin }) {
 function DashboardView({ state, leaderboard, setTab, setOpenSessionId, isAdmin }) {
   const top3 = leaderboard.slice(0, 3);
   const latest = state.sessions[state.sessions.length - 1];
-  const active = leaderboard.filter(l => l.stats.sessionsPlayed > 0).length;
+  const active = leaderboard.filter(l => l.stats.groupPlayed > 0 || l.stats.qfReached > 0).length;
+  const totalTeams = state.sessions.reduce((n, s) => n + (s.teams?.length || 0), 0);
 
   const rankColors = [
-    { text: "#fbbf24", glow: "rgba(251,191,36,0.35)", bg: "rgba(251,191,36,0.07)", border: "rgba(251,191,36,0.2)" },
+    { text: "#FFC24B", glow: "rgba(255,194,75,0.35)", bg: "rgba(255,194,75,0.07)", border: "rgba(255,194,75,0.2)" },
     { text: "#c0c0c0", glow: "rgba(192,192,192,0.25)", bg: "rgba(192,192,192,0.05)", border: "rgba(192,192,192,0.15)" },
     { text: "#cd7f32", glow: "rgba(205,127,50,0.25)", bg: "rgba(205,127,50,0.05)", border: "rgba(205,127,50,0.15)" },
   ];
@@ -626,29 +641,29 @@ function DashboardView({ state, leaderboard, setTab, setOpenSessionId, isAdmin }
 
       {/* ── Hero ─────────────────────────────────────── */}
       <div className="relative text-center py-8 overflow-hidden">
-        <div className="absolute inset-0 pointer-events-none" style={{ background: "radial-gradient(ellipse 70% 50% at 50% 0%, rgba(249,115,22,0.18) 0%, transparent 70%)" }} />
+        <div className="absolute inset-0 pointer-events-none" style={{ background: "radial-gradient(ellipse 70% 50% at 50% 0%, rgba(255,94,30,0.20) 0%, transparent 70%)" }} />
         <div className="relative">
-          <div className="flex justify-center mb-3"><UPLogo size={130} variant="full" /></div>
-          <div className="flex items-center justify-center gap-2 mb-2">
+          <div className="flex justify-center mb-3" style={{ filter: "drop-shadow(0 20px 55px rgba(255,80,20,.4))" }}><UPLogo size={130} variant="full" /></div>
+          <div className="flex items-center justify-center gap-2 mb-3">
             <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" style={{ boxShadow: "0 0 8px #10b981" }} />
-            <span className="text-[10px] text-stone-500 uppercase tracking-[0.4em] font-semibold">Season Active</span>
+            <span className="text-[10px] uppercase tracking-[0.4em] font-extrabold" style={{ color: "var(--blue)" }}>Season Active</span>
           </div>
-          <div className="font-display text-6xl leading-none mb-3" style={{ background: "linear-gradient(180deg, #fbbf24 0%, #f97316 40%, #dc2626 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", filter: "drop-shadow(0 0 24px rgba(249,115,22,0.5))" }}>{state.seasonName}</div>
+          <div className="font-display text-6xl leading-none mb-3 fury-grad" style={{ filter: "drop-shadow(0 0 24px rgba(255,94,30,0.5))" }}>{state.seasonName}</div>
           {state.seasonSubtitle && (
-            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full mb-2" style={{ background: "rgba(249,115,22,0.1)", border: "1px solid rgba(249,115,22,0.25)" }}>
-              <div className="text-[11px] text-orange-300 uppercase tracking-[0.3em] font-bold">{state.seasonSubtitle}</div>
+            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full mb-2" style={{ background: "rgba(51,161,255,0.1)", border: "1px solid rgba(51,161,255,0.25)" }}>
+              <div className="text-[11px] uppercase tracking-[0.3em] font-bold" style={{ color: "var(--blue-soft)" }}>{state.seasonSubtitle}</div>
             </div>
           )}
-          {state.seasonTagline && <div className="text-stone-400 text-sm italic mt-1">{state.seasonTagline}</div>}
+          {state.seasonTagline && <div className="text-sm italic mt-1" style={{ color: "var(--muted)" }}>{state.seasonTagline}</div>}
         </div>
       </div>
 
       {/* ── Stats ────────────────────────────────────── */}
       <div className="grid grid-cols-3 gap-2">
         {[
-          { value: state.sessions.length, label: "Sessions", color: "#f97316", shadow: "rgba(249,115,22,0.4)", border: "rgba(249,115,22,0.15)" },
-          { value: active,                label: "Active",   color: "#fbbf24", shadow: "rgba(251,191,36,0.4)", border: "rgba(251,191,36,0.15)" },
-          { value: state.players.length,  label: "Players",  color: "#e7e5e4", shadow: "rgba(231,229,228,0.2)", border: "rgba(231,229,228,0.08)" },
+          { value: state.sessions.length, label: "Sessions", color: "#FF5E1E", shadow: "rgba(255,94,30,0.4)", border: "rgba(255,94,30,0.15)" },
+          { value: active,                label: "Ranked",   color: "#FFC24B", shadow: "rgba(255,194,75,0.4)", border: "rgba(255,194,75,0.15)" },
+          { value: totalTeams,            label: "Teams",    color: "#33A1FF", shadow: "rgba(51,161,255,0.3)", border: "rgba(51,161,255,0.12)" },
         ].map(({ value, label, color, shadow, border }) => (
           <div key={label} className="rounded-xl p-3 text-center" style={{ background: "rgba(28,25,23,0.7)", border: `1px solid ${border}` }}>
             <div className="text-3xl font-mono font-bold" style={{ color, textShadow: `0 0 20px ${shadow}` }}>{value}</div>
@@ -661,8 +676,8 @@ function DashboardView({ state, leaderboard, setTab, setOpenSessionId, isAdmin }
       {top3.length > 0 && top3[0].totalPts > 0 && (
         <div className="rounded-xl overflow-hidden" style={{ background: "rgba(28,25,23,0.7)", border: "1px solid rgba(68,64,60,0.6)" }}>
           <div className="flex items-center justify-between px-4 pt-4 pb-2">
-            <h3 className="font-display text-xl tracking-wide" style={{ background: "linear-gradient(90deg,#fbbf24,#f97316)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>LEADERBOARD</h3>
-            <button onClick={() => setTab("leaderboard")} className="text-[11px] uppercase tracking-widest font-bold text-orange-500 hover:text-orange-400 transition-colors cursor-pointer">View All →</button>
+            <h3 className="font-display text-xl tracking-wide fury-grad">LEADERBOARD</h3>
+            <button onClick={() => setTab("leaderboard")} className="text-[11px] uppercase tracking-widest font-bold transition-colors cursor-pointer" style={{ color: "var(--blue)" }}>View All →</button>
           </div>
           <div className="px-3 pb-3 space-y-2">
             {top3.map((e, i) => {
@@ -673,7 +688,7 @@ function DashboardView({ state, leaderboard, setTab, setOpenSessionId, isAdmin }
                     {i === 0 ? "1st" : i === 1 ? "2nd" : "3rd"}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="font-semibold truncate" style={{ color: i === 0 ? "#fbbf24" : "#f5f5f4" }}>{e.player.name}</div>
+                    <div className="font-semibold truncate" style={{ color: i === 0 ? "#FFC24B" : "#f5f5f4" }}>{e.player.name}</div>
                     <div className="text-xs text-stone-500 mt-0.5">{e.stats.sessionsPlayed} sessions · {e.stats.groupWins} wins</div>
                   </div>
                   <div className="text-right shrink-0">
@@ -689,8 +704,8 @@ function DashboardView({ state, leaderboard, setTab, setOpenSessionId, isAdmin }
 
       {/* ── Latest Session ───────────────────────────── */}
       {latest ? (
-        <div className="rounded-xl p-4 cursor-pointer transition-all duration-200 active:scale-[0.99]" style={{ background: "rgba(28,25,23,0.7)", border: "1px solid rgba(249,115,22,0.2)", boxShadow: "0 0 0 0 transparent" }} onClick={() => setOpenSessionId(latest.id)}
-          onMouseEnter={e => e.currentTarget.style.boxShadow = "0 0 20px rgba(249,115,22,0.1)"}
+        <div className="rounded-xl p-4 cursor-pointer transition-all duration-200 active:scale-[0.99]" style={{ background: "rgba(28,25,23,0.7)", border: "1px solid rgba(255,94,30,0.25)", boxShadow: "0 0 0 0 transparent" }} onClick={() => setOpenSessionId(latest.id)}
+          onMouseEnter={e => e.currentTarget.style.boxShadow = "0 0 20px rgba(255,94,30,0.12)"}
           onMouseLeave={e => e.currentTarget.style.boxShadow = "none"}>
           <div className="flex items-center justify-between mb-2">
             <span className="text-[10px] text-stone-500 uppercase tracking-widest font-semibold">Latest Session</span>
@@ -698,7 +713,7 @@ function DashboardView({ state, leaderboard, setTab, setOpenSessionId, isAdmin }
           </div>
           <h3 className="font-display text-2xl text-stone-100 mb-1">{latest.name}</h3>
           <div className="text-sm text-stone-400">{latest.teams?.length || 0} teams · {latest.date ? new Date(latest.date).toLocaleDateString() : "No date"}</div>
-          <div className="mt-3 flex items-center gap-1.5 text-sm font-semibold" style={{ color: "#f97316" }}>
+          <div className="mt-3 flex items-center gap-1.5 text-sm font-semibold" style={{ color: "var(--orange-br)" }}>
             Open Session <I.chev size={14} />
           </div>
         </div>
@@ -1561,26 +1576,31 @@ function LeaderboardView({ leaderboard, state, setOpenPlayerId }) {
   const sorted = mode === "lifetime"
     ? [...leaderboard].sort((a, b) => b.lifetimePts - a.lifetimePts)
     : leaderboard;
-  const active = sorted.filter(l => l.stats.sessionsPlayed > 0);
-  const inactive = sorted.filter(l => l.stats.sessionsPlayed === 0);
-  const rankColors = ["#fbbf24", "#c0c0c0", "#cd7f32"];
+  // Only rank players who have actually played a match (not just attended/seeded)
+  const hasPlayed = (l) => l.stats.groupPlayed > 0 || l.stats.qfReached > 0;
+  const active = sorted.filter(hasPlayed);
+  const inactive = sorted.filter(l => !hasPlayed(l));
+  const rankColors = ["#FFC24B", "#c0c0c0", "#cd7f32"];
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="font-display text-3xl text-stone-100">LEADERBOARD</h2>
-        <Pill color="orange">{active.length} active</Pill>
+        <div>
+          <div className="kicker mb-1.5">The Standings</div>
+          <h2 className="font-display text-3xl text-stone-100">LEADERBOARD</h2>
+        </div>
+        {active.length > 0 && <Pill color="blue">{active.length} ranked</Pill>}
       </div>
       {hasLifetime && (
         <div className="flex gap-1 p-1 rounded-xl bg-stone-900/60 border border-stone-800">
           {["season","lifetime"].map(m => (
             <button key={m} onClick={() => setMode(m)} className={`flex-1 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all ${mode === m ? "text-stone-950 shadow" : "text-stone-500"}`}
-              style={{ background: mode === m ? "linear-gradient(135deg,#fbbf24,#f97316)" : "transparent" }}>
+              style={{ background: mode === m ? "var(--volt)" : "transparent" }}>
               {m === "season" ? "This Series" : "All-Time"}
             </button>
           ))}
         </div>
       )}
-      {active.length === 0 ? <Card className="p-8 text-center border-dashed"><I.trophy className="mx-auto mb-3 text-stone-600" size={32} /><div className="text-stone-400">No results yet</div></Card>
+      {active.length === 0 ? <Card className="p-8 text-center border-dashed"><I.trophy className="mx-auto mb-3 text-stone-600" size={32} /><div className="text-stone-300 font-semibold">Ranking locked</div><div className="text-stone-500 text-sm mt-1">Standings appear after the first match is played</div></Card>
         : <div className="space-y-1.5">{active.map((e, i) => {
           const pts = mode === "lifetime" ? e.lifetimePts : e.totalPts;
           const prevPts = e.player.prevSeriesPoints || 0;
@@ -1595,7 +1615,7 @@ function LeaderboardView({ leaderboard, state, setOpenPlayerId }) {
                 </div>
                 <Avatar player={e.player} size={38} />
                 <div className="flex-1 min-w-0">
-                  <div className="font-semibold truncate" style={{ color: i === 0 ? "#fbbf24" : "#f5f5f4" }}>{e.player.name}</div>
+                  <div className="font-semibold truncate" style={{ color: i === 0 ? "#FFC24B" : "#f5f5f4" }}>{e.player.name}</div>
                   <div className="text-[10px] text-stone-500 mt-0.5 flex items-center gap-2">
                     <span>{e.stats.sessionsPlayed} sess</span><span>·</span><span>{e.stats.groupWins}W</span>
                     {e.stats.finalsWon > 0 && <><span>·</span><span className="text-amber-400 font-semibold">{e.stats.finalsWon} finals</span></>}
@@ -1603,14 +1623,13 @@ function LeaderboardView({ leaderboard, state, setOpenPlayerId }) {
                   </div>
                 </div>
                 <div className="text-right shrink-0">
-                  <div className="font-mono font-bold text-2xl" style={{ color: i === 0 ? "#fbbf24" : i < 3 ? "#f97316" : "#e7e5e4" }}>{pts}</div>
+                  <div className="font-mono font-bold text-2xl" style={{ color: i === 0 ? "#FFC24B" : i < 3 ? "#FF8A3D" : "#e7e5e4" }}>{pts}</div>
                   <div className="text-[9px] text-stone-500 uppercase">pts</div>
                 </div>
               </div>
             </div>
           );
         })}</div>}
-      {inactive.length > 0 && <details className="text-xs text-stone-500"><summary className="cursor-pointer py-2">+ {inactive.length} not yet playing</summary><div className="space-y-1 mt-2">{inactive.map(e => <div key={e.player.id} className="flex items-center gap-2 px-3 py-1.5 rounded bg-stone-900/40"><Avatar player={e.player} size={24} /><span>{e.player.name}</span></div>)}</div></details>}
     </div>
   );
 }
