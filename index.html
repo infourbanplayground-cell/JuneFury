@@ -95,6 +95,47 @@ const LOSS_TYPES = [
 ];
 const uid = (p = "id") => p + "_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 7);
 
+function levenshtein(a, b) {
+  const m = a.length, n = b.length;
+  const dp = Array.from({length: m+1}, (_, i) => Array.from({length: n+1}, (_, j) => i || j));
+  for (let i = 1; i <= m; i++) for (let j = 1; j <= n; j++)
+    dp[i][j] = a[i-1] === b[j-1] ? dp[i-1][j-1] : 1 + Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1]);
+  return dp[m][n];
+}
+function fuzzyMatch(name, candidates, threshold = 3) {
+  const nl = name.toLowerCase();
+  let best = null, bestDist = Infinity;
+  for (const c of candidates) { const d = levenshtein(nl, c.toLowerCase()); if (d < bestDist) { bestDist = d; best = c; } }
+  return bestDist <= threshold && bestDist > 0 ? { match: best, dist: bestDist } : null;
+}
+function parseWhatsAppNames(text) {
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  const waPattern = /^\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4},? \d{1,2}:\d{2}(?::\d{2})?(?: [AP]M)? [-–] (.+?): /;
+  const systemKw = ['end-to-end','changed','added','removed','left','created','pinned','security code','joined using','using this link','number changed'];
+  const isWA = lines.some(l => waPattern.test(l));
+  const names = new Set();
+  if (isWA) {
+    lines.forEach(l => {
+      const m = l.match(waPattern);
+      if (!m) return;
+      const sender = m[1].trim();
+      if (sender.startsWith('+') || sender.match(/^\d/)) return;
+      const body = l.slice(m[0].length).toLowerCase();
+      if (systemKw.some(k => body.startsWith(k) || sender.toLowerCase().includes(k))) return;
+      names.add(sender);
+    });
+  } else {
+    lines.forEach(l => { if (l.length > 1 && l.length < 60 && !/^\+?\d[\d\s\-()]+$/.test(l)) names.add(l); });
+  }
+  return [...names];
+}
+function getSessionGroups(session) {
+  return GROUPS.slice(0, session?.groupCount || 4);
+}
+function getQualifyCount(session) {
+  return session?.qualifyCount || 1;
+}
+
 function initState() {
   return {
     seasonName: "JUNE FURY",
@@ -312,6 +353,21 @@ function PlayerPicker({ players, value, onChange, exclude = [], placeholder = "P
   );
 }
 
+function Avatar({ player, size = 40, className = "" }) {
+  const initials = (player.name || "?").split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
+  const [imgErr, setImgErr] = useState(false);
+  if (player.photoUrl && !imgErr) {
+    return <img src={player.photoUrl} alt={player.name} onError={() => setImgErr(true)}
+      className={`rounded-full object-cover shrink-0 ${className}`} style={{ width: size, height: size }} />;
+  }
+  return (
+    <div className={`rounded-full flex items-center justify-center shrink-0 font-bold text-stone-100 ${className}`}
+      style={{ width: size, height: size, background: "linear-gradient(135deg,#44403c,#292524)", fontSize: size * 0.35 }}>
+      {initials}
+    </div>
+  );
+}
+
 // ═══════════════════════════════════════════════════════════════
 // 🎯 MAIN APP
 // ═══════════════════════════════════════════════════════════════
@@ -385,7 +441,7 @@ function App() {
 
   const update = (fn) => setState(s => fn({ ...s }));
   const updateSession = (sid, fn) => setState(s => ({ ...s, sessions: s.sessions.map(ss => ss.id === sid ? fn({ ...ss }) : ss) }));
-  const leaderboard = state.players.map(p => ({ player: p, ...calcPlayerStats(p.id, state.sessions) })).sort((a, b) => b.totalPts - a.totalPts);
+  const leaderboard = state.players.map(p => { const s = calcPlayerStats(p.id, state.sessions); return { player: p, ...s, lifetimePts: s.totalPts + (p.prevSeriesPoints || 0) }; }).sort((a, b) => b.totalPts - a.totalPts);
   const currentSession = state.sessions.find(s => s.id === openSessionId);
 
   return (
@@ -426,7 +482,7 @@ function App() {
         </div>
       </nav>
 
-      {currentSession && <SessionDetail session={currentSession} state={state} isAdmin={isAdmin} onClose={() => setOpenSessionId(null)} updateSession={(fn) => updateSession(currentSession.id, fn)} deleteSession={() => { update(s => ({ ...s, sessions: s.sessions.filter(ss => ss.id !== currentSession.id) })); setOpenSessionId(null); }} />}
+      {currentSession && <SessionDetail session={currentSession} state={state} isAdmin={isAdmin} onClose={() => setOpenSessionId(null)} updateSession={(fn) => updateSession(currentSession.id, fn)} deleteSession={() => { update(s => ({ ...s, sessions: s.sessions.filter(ss => ss.id !== currentSession.id) })); setOpenSessionId(null); }} leaderboard={leaderboard} />}
       {openPlayerId && <PlayerDetail playerId={openPlayerId} state={state} leaderboard={leaderboard} onClose={() => setOpenPlayerId(null)} />}
       {showLogin && <LoginModal onClose={() => setShowLogin(false)} onLogin={handleLogin} />}
     </div>
@@ -667,13 +723,14 @@ function PlayersView({ state, update, setOpenPlayerId, isAdmin }) {
   const [search, setSearch] = useState("");
   const [showAdd, setShowAdd] = useState(false);
   const [showBulk, setShowBulk] = useState(false);
+  const [editPlayer, setEditPlayer] = useState(null);
   const filtered = state.players.filter(p => !search || p.name.toLowerCase().includes(search.toLowerCase()));
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="font-display text-3xl text-stone-100">PLAYERS</h2>
         {isAdmin && <div className="flex gap-2">
-          <Btn variant="secondary" size="sm" onClick={() => setShowBulk(true)}><I.upload size={14} /> Bulk</Btn>
+          <Btn variant="secondary" size="sm" onClick={() => setShowBulk(true)}><I.upload size={14} /> Import</Btn>
           <Btn size="sm" onClick={() => setShowAdd(true)}><I.plus size={14} /> Add</Btn>
         </div>}
       </div>
@@ -686,23 +743,26 @@ function PlayersView({ state, update, setOpenPlayerId, isAdmin }) {
           : filtered.map(p => {
             const stats = calcPlayerStats(p.id, state.sessions);
             return (
-              <Card key={p.id} className="p-3 flex items-center gap-3" onClick={() => setOpenPlayerId(p.id)}>
-                <div className="w-10 h-10 rounded-full flex items-center justify-center text-stone-100 font-bold" style={{ background: "linear-gradient(135deg, #44403c, #292524)" }}>{p.name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase()}</div>
+              <Card key={p.id} className="p-3 flex items-center gap-3" onClick={() => isAdmin ? setEditPlayer(p) : setOpenPlayerId(p.id)}>
+                <Avatar player={p} size={40} />
                 <div className="flex-1 min-w-0">
                   <div className="font-semibold text-stone-100 truncate">{p.name}</div>
-                  <div className="text-xs text-stone-500">{stats.stats.sessionsPlayed} sessions · {stats.stats.groupWins}W</div>
+                  <div className="text-xs text-stone-500">{stats.stats.sessionsPlayed} sessions · {stats.stats.groupWins}W{(p.prevSeriesPoints||0) > 0 ? ` · +${p.prevSeriesPoints} prev` : ""}</div>
                 </div>
                 <div className="text-right">
                   <div className="font-mono font-bold text-orange-500">{stats.totalPts}</div>
                   <div className="text-[10px] text-stone-500 uppercase">pts</div>
                 </div>
-                <I.chev size={16} className="text-stone-600" />
+                {isAdmin ? <I.edit size={14} className="text-stone-600" /> : <I.chev size={16} className="text-stone-600" />}
               </Card>
             );
           })}
       </div>
       {showAdd && <AddPlayerModal onClose={() => setShowAdd(false)} onAdd={(name) => update(s => ({ ...s, players: [...s.players, { id: uid("p"), name: name.trim(), addedAt: Date.now() }] }))} />}
-      {showBulk && <BulkAddModal onClose={() => setShowBulk(false)} existing={state.players.map(p => p.name)} onAdd={(names) => update(s => ({ ...s, players: [...s.players, ...names.map(n => ({ id: uid("p"), name: n, addedAt: Date.now() }))] }))} />}
+      {showBulk && <WhatsAppImportModal onClose={() => setShowBulk(false)} existing={state.players} onAdd={(players) => update(s => ({ ...s, players: [...s.players, ...players] }))} />}
+      {editPlayer && <PlayerEditModal player={editPlayer} onClose={() => setEditPlayer(null)}
+        onSave={(data) => update(s => ({ ...s, players: s.players.map(p => p.id === editPlayer.id ? { ...p, ...data } : p) }))}
+        onDelete={() => update(s => ({ ...s, players: s.players.filter(p => p.id !== editPlayer.id) }))} />}
     </div>
   );
 }
@@ -720,19 +780,95 @@ function AddPlayerModal({ onClose, onAdd }) {
   </Modal>;
 }
 
-function BulkAddModal({ onClose, onAdd, existing }) {
-  const [t, setT] = useState("");
-  const lines = t.split("\n").map(l => l.trim()).filter(l => l.length > 0);
-  const fresh = lines.filter(l => !existing.includes(l));
-  return <Modal open={true} onClose={onClose} title="BULK ADD">
+function PlayerEditModal({ player, onClose, onSave, onDelete }) {
+  const [name, setName] = useState(player.name || "");
+  const [photoUrl, setPhotoUrl] = useState(player.photoUrl || "");
+  const [prevPts, setPrevPts] = useState(String(player.prevSeriesPoints || 0));
+  const [showDel, setShowDel] = useState(false);
+  return <Modal open={true} onClose={onClose} title="EDIT PLAYER">
     <div className="space-y-3">
-      <div className="text-xs text-stone-400">One name per line. Duplicates skipped.</div>
-      <textarea value={t} onChange={e => setT(e.target.value)} rows={10} placeholder="Hassan Al Salhi&#10;Faisal Al Harthi&#10;…" className="w-full bg-stone-900 border border-stone-700 rounded-lg px-3 py-2.5 text-stone-100 font-mono text-sm focus:outline-none focus:border-orange-500" />
-      <div className="text-xs text-stone-500">{lines.length} lines · <span className="text-emerald-400">{fresh.length} new</span></div>
-      <div className="flex gap-2">
-        <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
-        <Btn onClick={() => { onAdd(fresh); onClose(); }} disabled={!fresh.length}>Import {fresh.length}</Btn>
+      {photoUrl && !photoUrl.includes("PASTE") && (
+        <div className="flex justify-center"><img src={photoUrl} alt="preview" className="w-20 h-20 rounded-full object-cover border-2 border-orange-500/30" onError={e => e.target.style.display="none"} /></div>
+      )}
+      <div><label className="text-xs text-stone-400 uppercase tracking-wider font-semibold mb-1 block">Name</label><Input value={name} onChange={setName} /></div>
+      <div><label className="text-xs text-stone-400 uppercase tracking-wider font-semibold mb-1 block">Photo URL</label><Input value={photoUrl} onChange={setPhotoUrl} placeholder="https://..." /></div>
+      <div><label className="text-xs text-stone-400 uppercase tracking-wider font-semibold mb-1 block">Previous Series Points</label>
+        <Input type="number" value={prevPts} onChange={setPrevPts} placeholder="0" />
+        <div className="text-[10px] text-stone-500 mt-1">Points carried over from past series for lifetime leaderboard.</div>
       </div>
+      <div className="flex gap-2 pt-2">
+        <Btn variant="danger" size="sm" onClick={() => setShowDel(true)}><I.trash size={14} /></Btn>
+        <Btn variant="ghost" onClick={onClose} className="ml-auto">Cancel</Btn>
+        <Btn onClick={() => { onSave({ name: name.trim() || player.name, photoUrl: photoUrl.trim(), prevSeriesPoints: parseInt(prevPts) || 0 }); onClose(); }}>Save</Btn>
+      </div>
+      {showDel && <div className="mt-2 p-3 rounded-lg bg-red-950/40 border border-red-900/40 space-y-2">
+        <div className="text-sm text-red-300">Delete {player.name}? This is permanent.</div>
+        <div className="flex gap-2"><Btn variant="ghost" size="sm" onClick={() => setShowDel(false)}>Cancel</Btn><Btn variant="danger" size="sm" onClick={() => { onDelete(); onClose(); }}>Delete</Btn></div>
+      </div>}
+    </div>
+  </Modal>;
+}
+
+function WhatsAppImportModal({ onClose, onAdd, existing }) {
+  const [text, setText] = useState("");
+  const [step, setStep] = useState("paste");
+  const [checked, setChecked] = useState({});
+  const existingNames = existing.map(p => p.name);
+
+  const parsed = useMemo(() => {
+    if (!text.trim()) return [];
+    return parseWhatsAppNames(text).map(name => {
+      const exactMatch = existingNames.find(e => e.toLowerCase() === name.toLowerCase());
+      if (exactMatch) return { name, status: "existing", suggestion: null };
+      const fuzzy = fuzzyMatch(name, existingNames);
+      return { name, status: fuzzy ? "fuzzy" : "new", suggestion: fuzzy?.match || null };
+    });
+  }, [text]);
+
+  const freshItems = parsed.filter(p => p.status !== "existing");
+  const toAdd = freshItems.filter(p => checked[p.name] !== false && p.status === "new")
+    .concat(freshItems.filter(p => checked[p.name] === true && p.status === "fuzzy"));
+
+  return <Modal open={true} onClose={onClose} title="IMPORT PLAYERS">
+    <div className="space-y-3">
+      {step === "paste" ? <>
+        <div className="text-xs text-stone-400">Paste a WhatsApp chat export or a plain list of names (one per line).</div>
+        <textarea value={text} onChange={e => setText(e.target.value)} rows={10}
+          placeholder={"31/05/2025, 10:23 - Hassan: Hey\n31/05/2025, 10:24 - Faisal: Ready!\n\nOR just:\nHassan Al Salhi\nFaisal Al Harthi"}
+          className="w-full bg-stone-900 border border-stone-700 rounded-lg px-3 py-2.5 text-stone-100 font-mono text-xs focus:outline-none focus:border-orange-500" />
+        <div className="flex gap-2">
+          <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
+          <Btn onClick={() => setStep("review")} disabled={!text.trim()}>Extract Names →</Btn>
+        </div>
+      </> : <>
+        <div className="text-xs text-stone-400 mb-2">{parsed.length} names found · {freshItems.length} new</div>
+        <div className="space-y-1.5 max-h-72 overflow-y-auto">
+          {parsed.map(p => (
+            <div key={p.name} className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm" style={{
+              background: p.status === "existing" ? "rgba(16,185,129,0.06)" : p.status === "fuzzy" ? "rgba(251,191,36,0.06)" : "rgba(28,25,23,0.7)",
+              border: p.status === "existing" ? "1px solid rgba(16,185,129,0.2)" : p.status === "fuzzy" ? "1px solid rgba(251,191,36,0.25)" : "1px solid rgba(68,64,60,0.5)"
+            }}>
+              {p.status === "existing" ? (
+                <><Icon d='<path d="M20 6L9 17l-5-5"/>' size={14} style={{color:"#10b981"}} /><span className="flex-1 text-stone-400 line-through">{p.name}</span><span className="text-[10px] text-emerald-500">already in</span></>
+              ) : p.status === "fuzzy" ? (
+                <><input type="checkbox" checked={checked[p.name] === true} onChange={e => setChecked(c => ({...c, [p.name]: e.target.checked}))} className="accent-orange-500" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-stone-200">{p.name}</div>
+                  <div className="text-[10px] text-amber-400">Similar to: {p.suggestion} — check to add as new</div>
+                </div></>
+              ) : (
+                <><input type="checkbox" checked={checked[p.name] !== false} onChange={e => setChecked(c => ({...c, [p.name]: e.target.checked}))} className="accent-orange-500" />
+                <span className="flex-1 text-stone-100">{p.name}</span>
+                <span className="text-[10px] text-emerald-400">new</span></>
+              )}
+            </div>
+          ))}
+        </div>
+        <div className="flex gap-2 pt-1">
+          <Btn variant="ghost" onClick={() => setStep("paste")}>← Back</Btn>
+          <Btn onClick={() => { onAdd(toAdd.map(p => ({ id: uid("p"), name: p.name, addedAt: Date.now() }))); onClose(); }} disabled={!toAdd.length}>Add {toAdd.length} Players</Btn>
+        </div>
+      </>}
     </div>
   </Modal>;
 }
@@ -768,7 +904,7 @@ function SessionsView({ state, update, setOpenSessionId, isAdmin }) {
           </Card>
         ))}
       </div>
-      {show && <CreateSessionModal onClose={() => setShow(false)} count={state.sessions.length} onCreate={(name, date) => { const id = uid("s"); update(s => ({ ...s, sessions: [...s.sessions, { id, name, date, teams: [], groupMatches: [], bracket: { qf: [], sf: [], final: null }, waitlist: [], completed: false }] })); setOpenSessionId(id); }} />}
+      {show && <CreateSessionModal onClose={() => setShow(false)} count={state.sessions.length} onCreate={(name, date, groupCount, qualifyCount) => { const id = uid("s"); update(s => ({ ...s, sessions: [...s.sessions, { id, name, date, groupCount: groupCount||4, qualifyCount: qualifyCount||1, teams: [], groupMatches: [], bracket: { qf: [], sf: [], final: null }, waitlist: [], completed: false }] })); setOpenSessionId(id); }} />}
     </div>
   );
 }
@@ -776,16 +912,33 @@ function SessionsView({ state, update, setOpenSessionId, isAdmin }) {
 function CreateSessionModal({ onClose, onCreate, count }) {
   const [n, setN] = useState(`Session ${count + 1}`);
   const [d, setD] = useState(new Date().toISOString().slice(0, 10));
+  const [groupCount, setGroupCount] = useState(4);
+  const [qualifyCount, setQualifyCount] = useState(1);
+  const totalQualifiers = groupCount * qualifyCount;
+  const bracketInfo = totalQualifiers >= 8 ? "QF → SF → Final" : totalQualifiers >= 4 ? "SF → Final" : "Final only";
   return <Modal open={true} onClose={onClose} title="NEW SESSION">
     <div className="space-y-3">
       <div><label className="text-xs text-stone-400 uppercase tracking-wider font-semibold mb-1 block">Name</label><Input autoFocus value={n} onChange={setN} /></div>
       <div><label className="text-xs text-stone-400 uppercase tracking-wider font-semibold mb-1 block">Date</label><Input type="date" value={d} onChange={setD} /></div>
-      <div className="flex gap-2 pt-2"><Btn variant="ghost" onClick={onClose}>Cancel</Btn><Btn onClick={() => { if (n) { onCreate(n, d); onClose(); } }}>Create</Btn></div>
+      <div>
+        <label className="text-xs text-stone-400 uppercase tracking-wider font-semibold mb-2 block">Number of Groups</label>
+        <div className="grid grid-cols-3 gap-2">
+          {[2,3,4].map(g => <button key={g} type="button" onClick={() => setGroupCount(g)} className={`py-2 rounded-lg font-display text-xl ${groupCount===g ? "bg-gradient-to-b from-orange-500 to-red-600 text-white" : "bg-stone-900 text-stone-300 border border-stone-700"}`}>{g}</button>)}
+        </div>
+      </div>
+      <div>
+        <label className="text-xs text-stone-400 uppercase tracking-wider font-semibold mb-2 block">Teams qualifying per group</label>
+        <div className="grid grid-cols-2 gap-2">
+          {[1,2].map(q => <button key={q} type="button" onClick={() => setQualifyCount(q)} className={`py-2 rounded-lg font-semibold text-sm ${qualifyCount===q ? "bg-gradient-to-b from-orange-500 to-red-600 text-white" : "bg-stone-900 text-stone-300 border border-stone-700"}`}>Top {q}</button>)}
+        </div>
+        <div className="text-[11px] text-orange-400 mt-2 font-semibold">{totalQualifiers} qualifiers → {bracketInfo}</div>
+      </div>
+      <div className="flex gap-2 pt-2"><Btn variant="ghost" onClick={onClose}>Cancel</Btn><Btn onClick={() => { if (n) { onCreate(n, d, groupCount, qualifyCount); onClose(); } }}>Create</Btn></div>
     </div>
   </Modal>;
 }
 
-function SessionDetail({ session, state, isAdmin, onClose, updateSession, deleteSession }) {
+function SessionDetail({ session, state, isAdmin, onClose, updateSession, deleteSession, leaderboard }) {
   const [tab, setTab] = useState("teams");
   const [showEdit, setShowEdit] = useState(false);
   const [showDel, setShowDel] = useState(false);
@@ -812,7 +965,7 @@ function SessionDetail({ session, state, isAdmin, onClose, updateSession, delete
         </div>
       </div>
       <div className="max-w-3xl mx-auto px-4 py-4 pb-24">
-        {tab === "teams" && <TeamsTab session={session} state={state} updateSession={updateSession} isAdmin={isAdmin} />}
+        {tab === "teams" && <TeamsTab session={session} state={state} updateSession={updateSession} isAdmin={isAdmin} leaderboard={leaderboard || []} />}
         {tab === "groups" && <GroupsTab session={session} state={state} updateSession={updateSession} isAdmin={isAdmin} />}
         {tab === "bracket" && <BracketTab session={session} state={state} updateSession={updateSession} isAdmin={isAdmin} />}
       </div>
@@ -851,18 +1004,45 @@ function SessionDetail({ session, state, isAdmin, onClose, updateSession, delete
   );
 }
 
-function TeamsTab({ session, state, updateSession, isAdmin }) {
+function TeamsTab({ session, state, updateSession, isAdmin, leaderboard }) {
   const [showAdd, setShowAdd] = useState(false);
   const [edit, setEdit] = useState(null);
   const teams = session.teams || [];
-  const byGroup = GROUPS.reduce((a, g) => (a[g] = teams.filter(t => t.group === g), a), {});
+  const groups = getSessionGroups(session);
+  const maxTeams = groups.length * 4;
+  const byGroup = groups.reduce((a, g) => (a[g] = teams.filter(t => t.group === g), a), {});
+
+  const autoSeedGroups = () => {
+    if (teams.length === 0) return;
+    // Rank teams by combined leaderboard position of both players
+    const ranked = [...teams].sort((a, b) => {
+      const rankOf = (pid) => { const idx = leaderboard.findIndex(e => e.player.id === pid); return idx === -1 ? 999 : idx; };
+      const scoreA = rankOf(a.p1Id) + rankOf(a.p2Id);
+      const scoreB = rankOf(b.p1Id) + rankOf(b.p2Id);
+      return scoreA - scoreB;
+    });
+    // Serpentine seeding across groups
+    const groupAssign = [];
+    let dir = 1, gi = 0;
+    for (let i = 0; i < ranked.length; i++) {
+      groupAssign.push(groups[gi]);
+      gi += dir;
+      if (gi >= groups.length) { gi = groups.length - 1; dir = -1; }
+      else if (gi < 0) { gi = 0; dir = 1; }
+    }
+    updateSession(s => ({ ...s, teams: s.teams.map((t, i) => { const idx = ranked.findIndex(r => r.id === t.id); return idx !== -1 ? { ...t, group: groupAssign[idx] } : t; }) }));
+  };
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div><div className="text-stone-200 font-semibold">{teams.length} / 16 teams</div>{isAdmin && <div className="text-xs text-stone-500">Tap to edit</div>}</div>
-        {isAdmin && <Btn size="sm" onClick={() => setShowAdd(true)} disabled={teams.length >= 16}><I.plus size={14} /> Add Team</Btn>}
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div><div className="text-stone-200 font-semibold">{teams.length} / {maxTeams} teams</div>{isAdmin && <div className="text-xs text-stone-500">Tap team to edit · {groups.length} groups</div>}</div>
+        {isAdmin && <div className="flex gap-2">
+          {teams.length > 0 && <Btn size="sm" variant="secondary" onClick={autoSeedGroups}><I.bolt size={14} /> Auto-Seed</Btn>}
+          <Btn size="sm" onClick={() => setShowAdd(true)} disabled={teams.length >= maxTeams}><I.plus size={14} /> Add</Btn>
+        </div>}
       </div>
-      {GROUPS.map(g => (
+      {groups.map(g => (
         <Card key={g} className="p-3">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
@@ -882,16 +1062,17 @@ function TeamsTab({ session, state, updateSession, isAdmin }) {
             })}</div>}
         </Card>
       ))}
-      {showAdd && <TeamFormModal title="ADD TEAM" state={state} session={session} onClose={() => setShowAdd(false)} onSave={(t) => updateSession(s => ({ ...s, teams: [...(s.teams || []), { id: uid("t"), ...t }] }))} />}
-      {edit && <TeamFormModal title="EDIT TEAM" state={state} session={session} initial={edit} onClose={() => setEdit(null)} onSave={(t) => updateSession(s => ({ ...s, teams: s.teams.map(x => x.id === edit.id ? { ...x, ...t } : x) }))} onDelete={() => updateSession(s => ({ ...s, teams: s.teams.filter(x => x.id !== edit.id) }))} />}
+      {showAdd && <TeamFormModal title="ADD TEAM" state={state} session={session} groups={groups} onClose={() => setShowAdd(false)} onSave={(t) => updateSession(s => ({ ...s, teams: [...(s.teams || []), { id: uid("t"), ...t }] }))} />}
+      {edit && <TeamFormModal title="EDIT TEAM" state={state} session={session} groups={groups} initial={edit} onClose={() => setEdit(null)} onSave={(t) => updateSession(s => ({ ...s, teams: s.teams.map(x => x.id === edit.id ? { ...x, ...t } : x) }))} onDelete={() => updateSession(s => ({ ...s, teams: s.teams.filter(x => x.id !== edit.id) }))} />}
     </div>
   );
 }
 
-function TeamFormModal({ title, state, session, initial, onClose, onSave, onDelete }) {
+function TeamFormModal({ title, state, session, groups, initial, onClose, onSave, onDelete }) {
+  const grps = groups || GROUPS;
   const [p1, setP1] = useState(initial?.p1Id || "");
   const [p2, setP2] = useState(initial?.p2Id || "");
-  const [g, setG] = useState(initial?.group || "A");
+  const [g, setG] = useState(initial?.group || grps[0] || "A");
   const warn = useMemo(() => {
     if (!p1 || !p2) return null;
     const others = state.sessions.filter(s => s.id !== session.id);
@@ -905,7 +1086,7 @@ function TeamFormModal({ title, state, session, initial, onClose, onSave, onDele
       <div><label className="text-xs text-stone-400 uppercase tracking-wider font-semibold mb-1 block">Player 2</label><PlayerPicker players={state.players} value={p2} onChange={setP2} exclude={[...used, p1].filter(Boolean)} /></div>
       {warn && <div className="flex gap-2 p-2.5 rounded-lg border bg-red-950/30 border-red-900/50 text-red-300 text-xs"><I.lock size={14} className="shrink-0 mt-0.5" /><span>{warn}</span></div>}
       <div><label className="text-xs text-stone-400 uppercase tracking-wider font-semibold mb-1 block">Group</label>
-        <div className="grid grid-cols-4 gap-2">{GROUPS.map(x => <button key={x} type="button" onClick={() => setG(x)} className={`py-2 rounded-lg font-display text-lg ${g === x ? "bg-gradient-to-b from-orange-500 to-red-600 text-white shadow-lg" : "bg-stone-900 text-stone-300 border border-stone-700"}`}>{x}</button>)}</div>
+        <div className={`grid gap-2`} style={{gridTemplateColumns:`repeat(${grps.length},1fr)`}}>{grps.map(x => <button key={x} type="button" onClick={() => setG(x)} className={`py-2 rounded-lg font-display text-lg ${g === x ? "bg-gradient-to-b from-orange-500 to-red-600 text-white shadow-lg" : "bg-stone-900 text-stone-300 border border-stone-700"}`}>{x}</button>)}</div>
       </div>
       <div className="flex gap-2 pt-2">
         {onDelete && <Btn variant="danger" onClick={() => { onDelete(); onClose(); }}><I.trash size={14} /></Btn>}
@@ -919,10 +1100,11 @@ function TeamFormModal({ title, state, session, initial, onClose, onSave, onDele
 function GroupsTab({ session, state, updateSession, isAdmin }) {
   const [edit, setEdit] = useState(null);
   const [add, setAdd] = useState(null);
+  const groups = getSessionGroups(session);
   return (
     <div className="space-y-4">
       {isAdmin && <div className="text-xs text-stone-400">Enter group stage match results. Top of group is auto-calculated.</div>}
-      {GROUPS.map(g => {
+      {groups.map(g => {
         const teams = (session.teams || []).filter(t => t.group === g);
         const matches = (session.groupMatches || []).filter(m => teams.find(t => t.id === m.team1Id) && teams.find(t => t.id === m.team2Id));
         const standings = calcGroupStandings(session, g);
@@ -1003,15 +1185,38 @@ function BracketTab({ session, state, updateSession, isAdmin }) {
   const b = session.bracket || { qf: [], sf: [], final: null };
   const teams = session.teams || [];
   const seedQF = () => {
-    const seeds = {};
-    GROUPS.forEach(g => { const s = calcGroupStandings(session, g); seeds[g] = [s[0]?.team?.id, s[1]?.team?.id]; });
-    if (!seeds.A?.[0] || !seeds.B?.[0] || !seeds.C?.[0] || !seeds.D?.[0]) { alert("Need top 2 from each group first"); return; }
-    updateSession(s => ({ ...s, bracket: { qf: [
-      { id: uid("qf"), slot: 1, team1Id: seeds.A[0], team2Id: seeds.B[1], winner: null },
-      { id: uid("qf"), slot: 2, team1Id: seeds.C[0], team2Id: seeds.D[1], winner: null },
-      { id: uid("qf"), slot: 3, team1Id: seeds.B[0], team2Id: seeds.A[1], winner: null },
-      { id: uid("qf"), slot: 4, team1Id: seeds.D[0], team2Id: seeds.C[1], winner: null },
-    ], sf: [], final: null } }));
+    const groups = getSessionGroups(session);
+    const qCount = getQualifyCount(session);
+    // Collect qualifiers per group in order
+    const qualifiers = [];
+    for (const g of groups) {
+      const s = calcGroupStandings(session, g);
+      for (let i = 0; i < qCount; i++) {
+        if (s[i]?.team?.id) qualifiers.push({ teamId: s[i].team.id, groupRank: i, group: g });
+      }
+    }
+    const total = qualifiers.length;
+    if (qualifiers.some(q => !q.teamId)) { alert(`Need top ${qCount} from each group first`); return; }
+    if (total === 2) {
+      // Final only
+      updateSession(s => ({ ...s, bracket: { qf: [], sf: [], final: { id: uid("f"), team1Id: qualifiers[0].teamId, team2Id: qualifiers[1].teamId, winner: null } } }));
+    } else if (total <= 4) {
+      // SF → Final (pair top seeds vs bottom seeds)
+      updateSession(s => ({ ...s, bracket: { qf: [], sf: [
+        { id: uid("sf"), slot: 1, team1Id: qualifiers[0].teamId, team2Id: qualifiers[total-1].teamId, winner: null },
+        { id: uid("sf"), slot: 2, team1Id: qualifiers[1].teamId, team2Id: qualifiers[total-2].teamId, winner: null },
+      ], final: null } }));
+    } else {
+      // QF → SF → Final (cross-bracket seeding for 8)
+      const tops = qualifiers.filter(q => q.groupRank === 0);
+      const runners = qualifiers.filter(q => q.groupRank === 1);
+      updateSession(s => ({ ...s, bracket: { qf: [
+        { id: uid("qf"), slot: 1, team1Id: tops[0]?.teamId, team2Id: runners[1]?.teamId, winner: null },
+        { id: uid("qf"), slot: 2, team1Id: tops[2]?.teamId, team2Id: runners[3]?.teamId, winner: null },
+        { id: uid("qf"), slot: 3, team1Id: tops[1]?.teamId, team2Id: runners[0]?.teamId, winner: null },
+        { id: uid("qf"), slot: 4, team1Id: tops[3]?.teamId, team2Id: runners[2]?.teamId, winner: null },
+      ].filter(m => m.team1Id && m.team2Id), sf: [], final: null } }));
+    }
   };
   const lbl = (id) => { const t = teams.find(t => t.id === id); if (!t) return "—"; const p1 = state.players.find(p => p.id === t.p1Id)?.name?.split(" ")[0] || "?"; const p2 = state.players.find(p => p.id === t.p2Id)?.name?.split(" ")[0] || "?"; return `${p1} & ${p2}`; };
 
@@ -1097,26 +1302,61 @@ function BracketEditModal({ match, teams, state, onClose, onSave, onReset }) {
 }
 
 function LeaderboardView({ leaderboard, state, setOpenPlayerId }) {
-  const active = leaderboard.filter(l => l.stats.sessionsPlayed > 0);
-  const inactive = leaderboard.filter(l => l.stats.sessionsPlayed === 0);
+  const [mode, setMode] = useState("season"); // "season" | "lifetime"
+  const hasLifetime = leaderboard.some(e => (e.player.prevSeriesPoints || 0) > 0);
+  const sorted = mode === "lifetime"
+    ? [...leaderboard].sort((a, b) => b.lifetimePts - a.lifetimePts)
+    : leaderboard;
+  const active = sorted.filter(l => l.stats.sessionsPlayed > 0);
+  const inactive = sorted.filter(l => l.stats.sessionsPlayed === 0);
+  const rankColors = ["#fbbf24", "#c0c0c0", "#cd7f32"];
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between"><h2 className="font-display text-3xl text-stone-100">LEADERBOARD</h2><Pill color="orange">{active.length} active</Pill></div>
+      <div className="flex items-center justify-between">
+        <h2 className="font-display text-3xl text-stone-100">LEADERBOARD</h2>
+        <Pill color="orange">{active.length} active</Pill>
+      </div>
+      {hasLifetime && (
+        <div className="flex gap-1 p-1 rounded-xl bg-stone-900/60 border border-stone-800">
+          {["season","lifetime"].map(m => (
+            <button key={m} onClick={() => setMode(m)} className={`flex-1 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all ${mode === m ? "text-stone-950 shadow" : "text-stone-500"}`}
+              style={{ background: mode === m ? "linear-gradient(135deg,#fbbf24,#f97316)" : "transparent" }}>
+              {m === "season" ? "This Series" : "All-Time"}
+            </button>
+          ))}
+        </div>
+      )}
       {active.length === 0 ? <Card className="p-8 text-center border-dashed"><I.trophy className="mx-auto mb-3 text-stone-600" size={32} /><div className="text-stone-400">No results yet</div></Card>
         : <div className="space-y-1.5">{active.map((e, i) => {
-          const medal = i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : null;
-          return <Card key={e.player.id} className="p-3" onClick={() => setOpenPlayerId(e.player.id)}>
-            <div className="flex items-center gap-3">
-              <div className="w-8 text-center">{medal ? <span className="text-2xl">{medal}</span> : <span className="font-mono text-stone-500 text-sm">{i + 1}</span>}</div>
-              <div className="flex-1 min-w-0">
-                <div className="font-semibold text-stone-100 truncate">{e.player.name}</div>
-                <div className="text-[10px] text-stone-500 mt-0.5 flex items-center gap-2"><span>{e.stats.sessionsPlayed} sess</span><span>·</span><span>{e.stats.groupWins}W</span>{e.stats.finalsWon > 0 && <><span>·</span><span className="text-amber-400 font-semibold">{e.stats.finalsWon}🏆</span></>}{e.breakdown.streakPts > 0 && <><span>·</span><span className="text-orange-400">🔥{e.breakdown.streakPts}</span></>}</div>
+          const pts = mode === "lifetime" ? e.lifetimePts : e.totalPts;
+          const prevPts = e.player.prevSeriesPoints || 0;
+          return (
+            <div key={e.player.id} className="rounded-xl p-3 cursor-pointer transition-all active:scale-[0.99]"
+              style={{ background: "rgba(28,25,23,0.7)", border: `1px solid ${i < 3 ? rankColors[i] + "33" : "rgba(68,64,60,0.5)"}` }}
+              onClick={() => setOpenPlayerId(e.player.id)}>
+              <div className="flex items-center gap-3">
+                <div className="w-8 text-center shrink-0">
+                  {i < 3 ? <div className="w-7 h-7 rounded-lg flex items-center justify-center font-display text-xs font-bold text-stone-950 mx-auto" style={{ background: rankColors[i], boxShadow: `0 0 10px ${rankColors[i]}66` }}>{i+1}</div>
+                    : <span className="font-mono text-stone-500 text-sm">{i + 1}</span>}
+                </div>
+                <Avatar player={e.player} size={38} />
+                <div className="flex-1 min-w-0">
+                  <div className="font-semibold truncate" style={{ color: i === 0 ? "#fbbf24" : "#f5f5f4" }}>{e.player.name}</div>
+                  <div className="text-[10px] text-stone-500 mt-0.5 flex items-center gap-2">
+                    <span>{e.stats.sessionsPlayed} sess</span><span>·</span><span>{e.stats.groupWins}W</span>
+                    {e.stats.finalsWon > 0 && <><span>·</span><span className="text-amber-400 font-semibold">{e.stats.finalsWon} finals</span></>}
+                    {mode === "lifetime" && prevPts > 0 && <><span>·</span><span className="text-blue-400">+{prevPts} prev</span></>}
+                  </div>
+                </div>
+                <div className="text-right shrink-0">
+                  <div className="font-mono font-bold text-2xl" style={{ color: i === 0 ? "#fbbf24" : i < 3 ? "#f97316" : "#e7e5e4" }}>{pts}</div>
+                  <div className="text-[9px] text-stone-500 uppercase">pts</div>
+                </div>
               </div>
-              <div className="text-right"><div className="font-mono font-bold text-2xl" style={{ color: i === 0 ? "#fbbf24" : i < 3 ? "#f97316" : "#e7e5e4" }}>{e.totalPts}</div><div className="text-[9px] text-stone-500 uppercase">pts</div></div>
             </div>
-          </Card>;
+          );
         })}</div>}
-      {inactive.length > 0 && <details className="text-xs text-stone-500"><summary className="cursor-pointer py-2">+ {inactive.length} not yet playing</summary><div className="space-y-1 mt-2">{inactive.map(e => <div key={e.player.id} className="px-3 py-1.5 rounded bg-stone-900/40">{e.player.name}</div>)}</div></details>}
+      {inactive.length > 0 && <details className="text-xs text-stone-500"><summary className="cursor-pointer py-2">+ {inactive.length} not yet playing</summary><div className="space-y-1 mt-2">{inactive.map(e => <div key={e.player.id} className="flex items-center gap-2 px-3 py-1.5 rounded bg-stone-900/40"><Avatar player={e.player} size={24} /><span>{e.player.name}</span></div>)}</div></details>}
     </div>
   );
 }
@@ -1128,12 +1368,15 @@ function PlayerDetail({ playerId, state, leaderboard, onClose }) {
   const rank = leaderboard.findIndex(l => l.player.id === playerId) + 1;
   const locked = getLockedPartners(playerId, state.sessions);
   const lockedNames = Array.from(locked).map(id => state.players.find(p => p.id === id)?.name).filter(Boolean);
+  const prevPts = player.prevSeriesPoints || 0;
   return <Modal open={true} onClose={onClose} title={player.name.toUpperCase()}>
     <div className="space-y-4">
       <div className="text-center py-3">
+        <div className="flex justify-center mb-3"><Avatar player={player} size={72} /></div>
         <div className="text-xs text-stone-500 uppercase tracking-wider mb-1">Rank #{rank}</div>
         <div className="font-mono text-5xl font-bold" style={{ color: rank === 1 ? "#fbbf24" : rank <= 3 ? "#f97316" : "#fafaf9" }}>{entry.totalPts}</div>
-        <div className="text-xs text-stone-500 uppercase tracking-wider">total points</div>
+        <div className="text-xs text-stone-500 uppercase tracking-wider">this series</div>
+        {prevPts > 0 && <div className="text-sm text-blue-400 mt-1 font-mono">+{prevPts} prev series = <span className="font-bold text-stone-200">{entry.lifetimePts}</span> lifetime</div>}
       </div>
       <div className="grid grid-cols-2 gap-2">
         <Card className="p-3"><div className="text-[10px] text-stone-500 uppercase tracking-wider mb-1">Match</div><div className="font-mono text-2xl font-bold text-stone-100">{entry.breakdown.matchPts}</div></Card>
