@@ -382,14 +382,15 @@ function Pill({ children, color = "orange" }) {
 function Btn({ children, onClick, variant = "primary", size = "md", className = "", disabled, type = "button" }) {
   const base = "inline-flex items-center justify-center gap-2 rounded-lg font-semibold transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed";
   const v = {
-    primary: "bg-gradient-to-b from-orange-500 to-red-600 text-white shadow-lg shadow-orange-500/20",
-    secondary: "bg-stone-800 text-stone-100 border border-stone-700",
+    primary: "text-stone-950 font-bold shadow-lg shadow-black/30",
+    secondary: "bg-stone-800/80 text-stone-100 border border-stone-700",
     ghost: "text-stone-300 hover:bg-stone-800",
     danger: "bg-red-900/40 text-red-300 border border-red-800/50",
-    gold: "bg-gradient-to-b from-amber-300 to-amber-500 text-stone-950 shadow-lg shadow-amber-500/20",
+    gold: "text-stone-950 font-bold shadow-lg shadow-black/30",
   };
   const sz = { sm: "px-3 py-1.5 text-xs", md: "px-4 py-2 text-sm", lg: "px-5 py-3 text-base" };
-  return <button type={type} onClick={onClick} disabled={disabled} className={`${base} ${v[variant]} ${sz[size]} ${className}`}>{children}</button>;
+  const inlineStyle = (variant === "primary" || variant === "gold") ? { background: "var(--volt)" } : {};
+  return <button type={type} onClick={onClick} disabled={disabled} className={`${base} ${v[variant]} ${sz[size]} ${className}`} style={inlineStyle}>{children}</button>;
 }
 
 function Card({ children, className = "", onClick }) {
@@ -565,17 +566,17 @@ function App() {
       </main>
 
       <nav className="fixed bottom-0 inset-x-0 z-30 border-t border-stone-800/80 backdrop-blur-xl" style={{ background: "rgba(10, 8, 7, 0.92)" }}>
-        <div className="max-w-3xl mx-auto grid grid-cols-4 px-2 py-1.5">
-          {[{id:"dashboard",icon:I.flame,label:"Home"},{id:"sessions",icon:I.calendar,label:"Sessions"},{id:"leaderboard",icon:I.trophy,label:"Rank"},{id:"players",icon:I.users,label:"Players"}].map(t => {
+        <div className={`max-w-3xl mx-auto grid ${isAdmin ? "grid-cols-4" : "grid-cols-3"} px-2 py-1.5`}>
+          {[{id:"dashboard",icon:I.flame,label:"Home"},{id:"sessions",icon:I.calendar,label:"Sessions"},{id:"leaderboard",icon:I.trophy,label:"Rank"},{id:"players",icon:I.users,label:"Players",adminOnly:true}].filter(t => !t.adminOnly || isAdmin).map(t => {
             const A = t.icon;
-            return <button key={t.id} onClick={() => setTab(t.id)} className={`flex flex-col items-center gap-0.5 py-2 rounded-lg transition-colors ${tab === t.id ? "" : "text-stone-500"}`} style={tab === t.id ? { color: "var(--blue)" } : {}}>
+            return <button key={t.id} onClick={() => setTab(t.id)} className={`flex flex-col items-center gap-0.5 py-2 rounded-lg transition-colors ${tab === t.id ? "" : "text-stone-500"}`} style={tab === t.id ? { color: "var(--volt)" } : {}}>
               <A size={20} /><span className="text-[10px] font-semibold tracking-wide uppercase">{t.label}</span>
             </button>;
           })}
         </div>
       </nav>
 
-      {currentSession && <SessionDetail session={currentSession} state={state} isAdmin={isAdmin} onClose={() => setOpenSessionId(null)} updateSession={(fn) => updateSession(currentSession.id, fn)} deleteSession={() => { update(s => ({ ...s, sessions: s.sessions.filter(ss => ss.id !== currentSession.id) })); setOpenSessionId(null); }} leaderboard={leaderboard} />}
+      {currentSession && <SessionDetail session={currentSession} state={state} isAdmin={isAdmin} onClose={() => setOpenSessionId(null)} updateSession={(fn) => updateSession(currentSession.id, fn)} update={update} deleteSession={() => { update(s => ({ ...s, sessions: s.sessions.filter(ss => ss.id !== currentSession.id) })); setOpenSessionId(null); }} leaderboard={leaderboard} />}
       {openPlayerId && <PlayerDetail playerId={openPlayerId} state={state} leaderboard={leaderboard} onClose={() => setOpenPlayerId(null)} />}
       {showLogin && <LoginModal onClose={() => setShowLogin(false)} onLogin={handleLogin} />}
     </div>
@@ -967,10 +968,10 @@ function WhatsAppImportModal({ onClose, onAdd, existing }) {
   </Modal>;
 }
 
-function WhatsAppTeamImportModal({ onClose, state, session, leaderboard, onImport }) {
+function WhatsAppTeamImportModal({ onClose, state, session, leaderboard, onImport, update }) {
   const [text, setText] = useState("");
   const [step, setStep] = useState("paste");
-  const [rows, setRows] = useState([]); // [{n1,n2,sel1,sel2,amb1,amb2,skip}]
+  const [rows, setRows] = useState([]);
   const groups = getSessionGroups(session);
   const existingPairs = new Set((session.teams || []).map(t => [t.p1Id, t.p2Id].sort().join("|")));
 
@@ -982,6 +983,8 @@ function WhatsAppTeamImportModal({ onClose, state, session, leaderboard, onImpor
         n1, n2,
         sel1: r1.player?.id || "", sel2: r2.player?.id || "",
         amb1: r1.ambiguous, amb2: r2.ambiguous,
+        new1: !r1.player,  // no match → will auto-register
+        new2: !r2.player,
       };
     });
     setRows(parsed);
@@ -991,27 +994,48 @@ function WhatsAppTeamImportModal({ onClose, state, session, leaderboard, onImpor
   const setSel = (i, key, val) => setRows(rs => rs.map((r, j) => j === i ? { ...r, [key]: val } : r));
   const toggleSkip = (i) => setRows(rs => rs.map((r, j) => j === i ? { ...r, skip: !r.skip } : r));
 
+  // new1 && !sel1 → will create new player → treat as ok
+  const effectiveId = (r, side) => r["sel" + side] || (r["new" + side] ? "__new__" : "");
   const status = (r) => {
-    if (!r.sel1 || !r.sel2) return "unmatched";
-    if (r.sel1 === r.sel2) return "samepair";
-    if (existingPairs.has([r.sel1, r.sel2].sort().join("|"))) return "dup";
+    const id1 = effectiveId(r, 1), id2 = effectiveId(r, 2);
+    if (!id1 || !id2) return "unmatched";
+    if (r.sel1 && r.sel1 === r.sel2) return "samepair";
+    if (r.sel1 && r.sel2 && existingPairs.has([r.sel1, r.sel2].sort().join("|"))) return "dup";
     return "ok";
   };
   const importable = rows.filter(r => !r.skip && status(r) === "ok");
+  const newCount = importable.filter(r => r.new1 && !r.sel1).length + importable.filter(r => r.new2 && !r.sel2).length;
 
   const handleImport = () => {
-    const newTeams = importable.map(r => ({ id: uid("t"), p1Id: r.sel1, p2Id: r.sel2, group: groups[0] }));
+    // Create new players for unmatched names
+    const created = {};
+    importable.forEach(r => {
+      if (r.new1 && !r.sel1) { const p = { id: uid("p"), name: r.n1, addedAt: Date.now() }; created[r.n1] = p; }
+      if (r.new2 && !r.sel2) { const p = { id: uid("p"), name: r.n2, addedAt: Date.now() }; created[r.n2] = p; }
+    });
+    if (Object.keys(created).length > 0) {
+      update(s => ({ ...s, players: [...s.players, ...Object.values(created)] }));
+    }
+    const newTeams = importable.map(r => ({
+      id: uid("t"),
+      p1Id: r.sel1 || created[r.n1]?.id,
+      p2Id: r.sel2 || created[r.n2]?.id,
+      group: groups[0],
+    }));
     onImport(newTeams);
     onClose();
   };
 
   const sortedPlayers = useMemo(() => [...state.players].sort((a, b) => a.name.localeCompare(b.name)), [state.players]);
-  const NameSelect = ({ raw, value, ambiguous, onChange }) => (
+  const NameSelect = ({ raw, value, ambiguous, isNew, onChange }) => (
     <div className="flex-1 min-w-0">
-      <div className="text-[10px] text-stone-500 truncate">"{raw}"</div>
+      <div className="flex items-center gap-1">
+        <div className="text-[10px] text-stone-500 truncate">"{raw}"</div>
+        {isNew && !value && <span className="text-[9px] font-bold px-1 rounded" style={{ background: "var(--volt)", color: "#0a0807" }}>NEW</span>}
+      </div>
       <select value={value} onChange={e => onChange(e.target.value)}
-        className={`w-full bg-stone-900 border rounded-md px-2 py-1.5 text-xs text-stone-100 ${!value ? "border-red-500/60" : ambiguous ? "border-amber-500/60" : "border-stone-700"}`}>
-        <option value="">— pick player —</option>
+        className={`w-full bg-stone-900 border rounded-md px-2 py-1.5 text-xs text-stone-100 ${!value && !isNew ? "border-red-500/60" : ambiguous ? "border-amber-500/60" : isNew && !value ? "border-emerald-500/60" : "border-stone-700"}`}>
+        <option value="">{isNew ? `+ register "${raw}"` : "— pick player —"}</option>
         {sortedPlayers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
       </select>
     </div>
@@ -1020,16 +1044,16 @@ function WhatsAppTeamImportModal({ onClose, state, session, leaderboard, onImpor
   return <Modal open={true} onClose={onClose} title="IMPORT TEAMS">
     <div className="space-y-3">
       {step === "paste" ? <>
-        <div className="text-xs text-stone-400">Paste WA chat export or plain list. One team per line, separated by&nbsp;<code className="text-orange-400">&amp;</code> or <code className="text-orange-400">/</code>. Short names get matched automatically — confirm on next step.</div>
+        <div className="text-xs text-stone-400">Paste WA chat export or plain list. One team per line, separated by <code className="text-amber-400">&amp;</code> or <code className="text-amber-400">/</code>. Unknown names auto-register as new players.</div>
         <textarea value={text} onChange={e => setText(e.target.value)} rows={10}
           placeholder={"Ahmed & Khalid\nMoh / Sultan\nFaisal & Omar\n\nOR from WA export:\n31/05/2025, 10:23 - Coach: Ahmed & Khalid"}
-          className="w-full bg-stone-900 border border-stone-700 rounded-lg px-3 py-2.5 text-stone-100 font-mono text-xs focus:outline-none focus:border-orange-500" />
+          className="w-full bg-stone-900 border border-stone-700 rounded-lg px-3 py-2.5 text-stone-100 font-mono text-xs focus:outline-none focus:border-stone-500" />
         <div className="flex gap-2">
           <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
           <Btn onClick={buildRows} disabled={!text.trim()}>Extract Teams →</Btn>
         </div>
       </> : <>
-        <div className="text-xs text-stone-400">{rows.length} pairs · {importable.length} ready. <span className="text-amber-400">Amber</span> = unsure, check it. <span className="text-red-400">Red</span> = pick manually.</div>
+        <div className="text-xs text-stone-400">{rows.length} pairs · {importable.length} ready{newCount > 0 ? <span className="text-emerald-400"> · {newCount} new player{newCount>1?"s":""} will be registered</span> : null}. <span className="text-amber-400">Amber</span> = unsure. <span className="text-red-400">Red</span> = pick manually.</div>
         <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
           {rows.map((r, i) => {
             const st = status(r);
@@ -1038,9 +1062,9 @@ function WhatsAppTeamImportModal({ onClose, state, session, leaderboard, onImpor
               <div key={i} className="px-2.5 py-2 rounded-lg" style={{ background: bg, border: "1px solid rgba(68,64,60,0.5)" }}>
                 <div className="flex items-center gap-2">
                   <input type="checkbox" checked={!r.skip && st !== "dup"} disabled={st === "dup"} onChange={() => toggleSkip(i)} className="accent-orange-500 shrink-0" />
-                  <NameSelect raw={r.n1} value={r.sel1} ambiguous={r.amb1} onChange={v => setSel(i, "sel1", v)} />
+                  <NameSelect raw={r.n1} value={r.sel1} ambiguous={r.amb1} isNew={r.new1} onChange={v => setSel(i, "sel1", v)} />
                   <span className="text-stone-500 shrink-0">&</span>
-                  <NameSelect raw={r.n2} value={r.sel2} ambiguous={r.amb2} onChange={v => setSel(i, "sel2", v)} />
+                  <NameSelect raw={r.n2} value={r.sel2} ambiguous={r.amb2} isNew={r.new2} onChange={v => setSel(i, "sel2", v)} />
                 </div>
                 {st === "dup" && <div className="text-[10px] text-emerald-500 mt-1 pl-6">Already in this session</div>}
                 {st === "samepair" && <div className="text-[10px] text-red-400 mt-1 pl-6">Same player twice</div>}
@@ -1123,7 +1147,7 @@ function CreateSessionModal({ onClose, onCreate, count }) {
   </Modal>;
 }
 
-function SessionDetail({ session, state, isAdmin, onClose, updateSession, deleteSession, leaderboard }) {
+function SessionDetail({ session, state, isAdmin, onClose, updateSession, update, deleteSession, leaderboard }) {
   const [tab, setTab] = useState("teams");
   const [showEdit, setShowEdit] = useState(false);
   const [showDel, setShowDel] = useState(false);
@@ -1143,14 +1167,14 @@ function SessionDetail({ session, state, isAdmin, onClose, updateSession, delete
       <div className="sticky top-[57px] z-10 px-4 py-2 backdrop-blur-xl border-b border-stone-800/40" style={{ background: "rgba(10, 8, 7, 0.85)" }}>
         <div className="max-w-3xl mx-auto flex gap-2 overflow-x-auto">
           {[{id:"teams",label:"Teams",Ic:I.users},{id:"groups",label:"Groups",Ic:I.bar},{id:"bracket",label:"Knockouts",Ic:I.swords}].map(t => (
-            <button key={t.id} onClick={() => setTab(t.id)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold whitespace-nowrap ${tab === t.id ? "bg-orange-500/15 text-orange-400 border border-orange-500/30" : "text-stone-400 border border-transparent"}`}>
+            <button key={t.id} onClick={() => setTab(t.id)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold whitespace-nowrap border transition-all ${tab === t.id ? "border-transparent text-stone-950" : "text-stone-400 border-transparent"}`} style={tab === t.id ? { background: "var(--volt)" } : {}}>
               <t.Ic size={14} /> {t.label}
             </button>
           ))}
         </div>
       </div>
       <div className="max-w-3xl mx-auto px-4 py-4 pb-24">
-        {tab === "teams" && <TeamsTab session={session} state={state} updateSession={updateSession} isAdmin={isAdmin} leaderboard={leaderboard || []} />}
+        {tab === "teams" && <TeamsTab session={session} state={state} updateSession={updateSession} update={update} isAdmin={isAdmin} leaderboard={leaderboard || []} />}
         {tab === "groups" && <GroupsTab session={session} state={state} updateSession={updateSession} isAdmin={isAdmin} />}
         {tab === "bracket" && <BracketTab session={session} state={state} updateSession={updateSession} isAdmin={isAdmin} />}
       </div>
@@ -1189,7 +1213,7 @@ function SessionDetail({ session, state, isAdmin, onClose, updateSession, delete
   );
 }
 
-function TeamsTab({ session, state, updateSession, isAdmin, leaderboard }) {
+function TeamsTab({ session, state, updateSession, update, isAdmin, leaderboard }) {
   const [showAdd, setShowAdd] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [edit, setEdit] = useState(null);
@@ -1258,7 +1282,7 @@ function TeamsTab({ session, state, updateSession, isAdmin, leaderboard }) {
       ))}
       {showAdd && <TeamFormModal title="ADD TEAM" state={state} session={session} groups={groups} onClose={() => setShowAdd(false)} onSave={(t) => updateSession(s => ({ ...s, teams: [...(s.teams || []), { id: uid("t"), ...t }] }))} />}
       {edit && <TeamFormModal title="EDIT TEAM" state={state} session={session} groups={groups} initial={edit} onClose={() => setEdit(null)} onSave={(t) => updateSession(s => ({ ...s, teams: s.teams.map(x => x.id === edit.id ? { ...x, ...t } : x) }))} onDelete={() => updateSession(s => ({ ...s, teams: s.teams.filter(x => x.id !== edit.id) }))} />}
-      {showImport && <WhatsAppTeamImportModal onClose={() => setShowImport(false)} state={state} session={session} leaderboard={leaderboard || []} onImport={handleImport} />}
+      {showImport && <WhatsAppTeamImportModal onClose={() => setShowImport(false)} state={state} session={session} leaderboard={leaderboard || []} onImport={handleImport} update={update} />}
     </div>
   );
 }
@@ -1384,6 +1408,21 @@ function BracketTab({ session, state, updateSession, isAdmin }) {
     const qCount = getQualifyCount(session);
     const standings = groups.map(g => calcGroupStandings(session, g));
     const N = groups.length;
+
+    // 3 groups: top 2 per group (6) + 2 best 3rd-place = 8, seed standard bracket
+    if (N === 3) {
+      const allTop2 = standings.flatMap((s, gi) => [0,1].map(rank => s[rank]?.team?.id ? { id: s[rank].team.id, pts: s[rank].pts, wins: s[rank].wins, rank, seed: groups[gi] + (rank+1) } : null).filter(Boolean));
+      const thirds = standings.map((s, gi) => s[2]?.team?.id ? { id: s[2].team.id, pts: s[2].pts, wins: s[2].wins, rank: 2, seed: groups[gi] + "3" } : null).filter(Boolean);
+      const best2thirds = [...thirds].sort((a,b) => b.pts - a.pts || b.wins - a.wins).slice(0, 2);
+      const qualified = [...allTop2, ...best2thirds].sort((a,b) => a.rank - b.rank || b.pts - a.pts || b.wins - a.wins);
+      if (qualified.length < 4) { alert("Not enough results — need at least 2 teams per group and some 3rd-place results"); return; }
+      // Standard 8-team seeding: 1v8, 4v5, 3v6, 2v7 in QF
+      const seeded = qualified.slice(0, 8);
+      const pairs = [[0,7],[3,4],[2,5],[1,6]];
+      const qf = pairs.map(([x,y], i) => seeded[x] && seeded[y] ? { id: uid("qf"), slot: i+1, team1Id: seeded[x].id, team2Id: seeded[y].id, s1: seeded[x].seed, s2: seeded[y].seed, winner: null } : null).filter(Boolean);
+      updateSession(s => ({ ...s, bracket: { qf, sf: [], final: null } }));
+      return;
+    }
 
     // Cross-group seeding (1st of group vs 2nd of opposite group) when top-2 qualify
     if (qCount >= 2 && (N === 2 || N === 4)) {
