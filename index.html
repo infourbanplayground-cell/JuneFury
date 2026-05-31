@@ -1093,32 +1093,38 @@ function WhatsAppTeamImportModal({ onClose, state, session, leaderboard, onImpor
   const setSel = (i, key, val) => setRows(rs => rs.map((r, j) => j === i ? { ...r, [key]: val } : r));
   const toggleSkip = (i) => setRows(rs => rs.map((r, j) => j === i ? { ...r, skip: !r.skip } : r));
 
-  // new1 && !sel1 → will create new player → treat as ok
-  const effectiveId = (r, side) => r["sel" + side] || (r["new" + side] ? "__new__" : "");
+  // "__register__" sentinel = user explicitly chose to register as new (overrides any fuzzy match)
+  const isRegisterNew = (r, side) => r["sel" + side] === "__register__" || (r["new" + side] && !r["sel" + side]);
+  const effectiveId = (r, side) => {
+    const sel = r["sel" + side];
+    if (sel === "__register__" || (!sel && r["new" + side])) return "__new__";
+    return sel || "";
+  };
   const status = (r) => {
     const id1 = effectiveId(r, 1), id2 = effectiveId(r, 2);
     if (!id1 || !id2) return "unmatched";
-    if (r.sel1 && r.sel1 === r.sel2) return "samepair";
-    if (r.sel1 && r.sel2 && existingPairs.has([r.sel1, r.sel2].sort().join("|"))) return "dup";
+    const real1 = id1 !== "__new__" ? id1 : null;
+    const real2 = id2 !== "__new__" ? id2 : null;
+    if (real1 && real1 === real2) return "samepair";
+    if (real1 && real2 && existingPairs.has([real1, real2].sort().join("|"))) return "dup";
     return "ok";
   };
   const importable = rows.filter(r => !r.skip && status(r) === "ok");
-  const newCount = importable.filter(r => r.new1 && !r.sel1).length + importable.filter(r => r.new2 && !r.sel2).length;
+  const newCount = importable.filter(r => isRegisterNew(r, 1)).length + importable.filter(r => isRegisterNew(r, 2)).length;
 
   const handleImport = () => {
-    // Create new players for unmatched names
     const created = {};
     importable.forEach(r => {
-      if (r.new1 && !r.sel1) { const p = { id: uid("p"), name: r.n1, addedAt: Date.now() }; created[r.n1] = p; }
-      if (r.new2 && !r.sel2) { const p = { id: uid("p"), name: r.n2, addedAt: Date.now() }; created[r.n2] = p; }
+      if (isRegisterNew(r, 1)) { const p = { id: uid("p"), name: r.n1, addedAt: Date.now() }; created[r.n1] = p; }
+      if (isRegisterNew(r, 2)) { const p = { id: uid("p"), name: r.n2, addedAt: Date.now() }; created[r.n2] = p; }
     });
     if (Object.keys(created).length > 0) {
       update(s => ({ ...s, players: [...s.players, ...Object.values(created)] }));
     }
     const newTeams = importable.map(r => ({
       id: uid("t"),
-      p1Id: r.sel1 || created[r.n1]?.id,
-      p2Id: r.sel2 || created[r.n2]?.id,
+      p1Id: isRegisterNew(r, 1) ? created[r.n1]?.id : r.sel1,
+      p2Id: isRegisterNew(r, 2) ? created[r.n2]?.id : r.sel2,
       group: groups[0],
     }));
     onImport(newTeams);
@@ -1126,19 +1132,29 @@ function WhatsAppTeamImportModal({ onClose, state, session, leaderboard, onImpor
   };
 
   const sortedPlayers = useMemo(() => [...state.players].sort((a, b) => a.name.localeCompare(b.name)), [state.players]);
-  const NameSelect = ({ raw, value, ambiguous, isNew, onChange }) => (
-    <div className="flex-1 min-w-0">
-      <div className="flex items-center gap-1">
-        <div className="text-[10px] text-stone-500 truncate">"{raw}"</div>
-        {isNew && !value && <span className="text-[9px] font-bold px-1 rounded bg-emerald-500 text-white">NEW</span>}
+  const NameSelect = ({ raw, value, ambiguous, isNew, onChange }) => {
+    const registerChosen = value === "__register__";
+    const resolved = !isNew && value && value !== "__register__";
+    const borderCls = !value && !isNew ? "border-red-500/60"
+      : ambiguous && !registerChosen ? "border-amber-500/60"
+      : (isNew && !value) || registerChosen ? "border-emerald-500/60"
+      : "border-stone-700";
+    return (
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1">
+          <div className="text-[10px] text-stone-500 truncate">"{raw}"</div>
+          {(isNew && !value) || registerChosen ? <span className="text-[9px] font-bold px-1 rounded bg-emerald-500 text-white">NEW</span> : null}
+        </div>
+        <select value={value} onChange={e => onChange(e.target.value)}
+          className={`w-full bg-stone-900 border rounded-md px-2 py-1.5 text-xs text-stone-100 ${borderCls}`}>
+          <option value="">{isNew ? "— auto-register as new —" : "— pick player —"}</option>
+          <option value="__register__">+ Register "{raw}" as new player</option>
+          <option disabled>──────────────</option>
+          {sortedPlayers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
       </div>
-      <select value={value} onChange={e => onChange(e.target.value)}
-        className={`w-full bg-stone-900 border rounded-md px-2 py-1.5 text-xs text-stone-100 ${!value && !isNew ? "border-red-500/60" : ambiguous ? "border-amber-500/60" : isNew && !value ? "border-emerald-500/60" : "border-stone-700"}`}>
-        <option value="">{isNew ? `+ register "${raw}"` : "— pick player —"}</option>
-        {sortedPlayers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-      </select>
-    </div>
-  );
+    );
+  };
 
   return <Modal open={true} onClose={onClose} title="IMPORT TEAMS">
     <div className="space-y-3">
