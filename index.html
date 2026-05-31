@@ -93,18 +93,24 @@ async function saveStateChunked(state) {
     } catch (e) { /* URL too long — fall through to chunked */ }
   }
   // Chunked path — requires updated Code.gs with saveChunk handler.
-  const CHUNK = 1200;
+  // 3500 raw chars URL-encode to ~6KB, safely under Google's 8KB URL limit.
+  const CHUNK = 3500;
   const total = Math.ceil(json.length / CHUNK);
   const sid = "s" + Date.now().toString(36);
   for (let i = 0; i < total; i++) {
-    const r = await apiGet("saveChunk", { sid, i, total, chunk: json.slice(i * CHUNK, (i + 1) * CHUNK) });
+    let r, lastErr;
+    // Retry each chunk twice to ride out transient network blips
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try { r = await apiGet("saveChunk", { sid, i, total, chunk: json.slice(i * CHUNK, (i + 1) * CHUNK) }); lastErr = null; break; }
+      catch (e) { lastErr = e; }
+    }
+    if (lastErr) throw new Error("Network error saving chunk " + (i + 1) + "/" + total);
     if (r && r.ok === false && !r.pending) {
       const msg = r.error || "saveChunk not recognised";
-      // Backend hasn't been updated — tell the user explicitly
       if (msg.includes("Unknown action")) {
-        throw new Error("⚠️ Code.gs needs update — paste the new Code.gs in Apps Script and redeploy");
+        throw new Error("⚠️ Code.gs is outdated — paste the new Code.gs in Apps Script and redeploy (New version)");
       }
-      throw new Error(msg);
+      throw new Error("Backend error: " + msg);
     }
   }
   return { ok: true };
@@ -474,6 +480,7 @@ function App() {
   const [isAdmin, setIsAdmin] = useState(() => localStorage.getItem(ADMIN_KEY) === "yes");
   const [showLogin, setShowLogin] = useState(false);
   const [sync, setSync] = useState("idle");
+  const [syncErr, setSyncErr] = useState("");
   const saveTimer = useRef();
   const pollTimer = useRef();
   const initialLoaded = useRef(false);
@@ -507,8 +514,8 @@ function App() {
     clearTimeout(saveTimer.current);
     setSync("syncing");
     saveTimer.current = setTimeout(async () => {
-      try { await apiPost({ action: "saveState", state }); setSync("idle"); }
-      catch (e) { setSync("error"); if (e.message && e.message.includes("Code.gs")) alert(e.message); }
+      try { await apiPost({ action: "saveState", state }); setSync("idle"); setSyncErr(""); }
+      catch (e) { setSync("error"); setSyncErr(e.message || "Unknown sync error"); }
     }, 600);
   }, [state, isAdmin]);
 
@@ -551,7 +558,7 @@ function App() {
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            <SyncIndicator status={sync} />
+            <SyncIndicator status={sync} errMsg={syncErr} />
             {isAdmin ? <button onClick={() => setTab("settings")} className="text-stone-400 hover:text-orange-500 p-2"><I.settings size={18} /></button>
               : <button onClick={() => setShowLogin(true)} className="text-stone-400 hover:text-orange-500 p-2"><I.lock size={18} /></button>}
           </div>
@@ -584,10 +591,11 @@ function App() {
   );
 }
 
-function SyncIndicator({ status }) {
+function SyncIndicator({ status, errMsg }) {
   const map = { idle:{color:"#10b981",label:"Synced"}, syncing:{color:"#f59e0b",label:"Syncing"}, error:{color:"#ef4444",label:"Sync error"}, offline:{color:"#a8a29e",label:"Offline"} };
   const s = map[status] || map.idle;
-  return <div className="flex items-center gap-1.5 text-[10px] uppercase font-semibold tracking-wider" title={s.label}>
+  const onClick = () => { if (status === "error" && errMsg) alert("Sync error:\n\n" + errMsg); };
+  return <div onClick={onClick} className={`flex items-center gap-1.5 text-[10px] uppercase font-semibold tracking-wider ${status === "error" ? "cursor-pointer" : ""}`} title={status === "error" ? (errMsg || s.label) : s.label}>
     <div className="w-2 h-2 rounded-full" style={{ background: s.color, boxShadow: `0 0 8px ${s.color}` }} />
     <span className="text-stone-500 hidden sm:inline">{s.label}</span>
   </div>;
