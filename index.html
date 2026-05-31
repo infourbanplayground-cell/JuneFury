@@ -1786,7 +1786,13 @@ function BracketRow({ match, lbl, onClick, big }) {
   return <button onClick={onClick} className={`w-full ${big ? "p-3" : "p-2"} rounded-lg bg-stone-900/50 hover:bg-stone-800/70 text-left`}>
     <div className="flex items-center gap-2">
       <div className={`flex-1 min-w-0 flex items-center gap-1.5 ${big ? "text-base" : "text-sm"} ${w === "team1" ? "text-emerald-400 font-bold" : "text-stone-300"}`}>{w === "team1" && <I.trophy size={big ? 14 : 11} className="shrink-0" />}<SeedBadge seed={match.s1} /><span className="truncate">{lbl(match.team1Id)}</span></div>
-      <span className="text-stone-600 font-mono text-xs shrink-0">vs</span>
+      {match.score ? (
+        <span className="font-mono font-bold text-sm tracking-tight shrink-0">
+          <span className={w === "team1" ? "text-emerald-400" : "text-stone-500"}>{match.score.t1}</span>
+          <span className="text-stone-600 mx-0.5">-</span>
+          <span className={w === "team2" ? "text-emerald-400" : "text-stone-500"}>{match.score.t2}</span>
+        </span>
+      ) : <span className="text-stone-600 font-mono text-xs shrink-0">vs</span>}
       <div className={`flex-1 min-w-0 flex items-center justify-end gap-1.5 ${big ? "text-base" : "text-sm"} ${w === "team2" ? "text-emerald-400 font-bold" : "text-stone-300"}`}><span className="truncate">{lbl(match.team2Id)}</span><SeedBadge seed={match.s2} />{w === "team2" && <I.trophy size={big ? 14 : 11} className="shrink-0" />}</div>
     </div>
   </button>;
@@ -1795,22 +1801,69 @@ function BracketRow({ match, lbl, onClick, big }) {
 function BracketEditModal({ match, teams, state, onClose, onSave, onReset }) {
   const [t1, setT1] = useState(match.team1Id || "");
   const [t2, setT2] = useState(match.team2Id || "");
-  const [w, setW] = useState(match.winner || "");
+  const initS1 = match?.score?.t1 ?? (match?.winner ? (match.winner === "team1" ? 6 : 3) : null);
+  const initS2 = match?.score?.t2 ?? (match?.winner ? (match.winner === "team2" ? 6 : 3) : null);
+  const [s1, setS1] = useState(initS1);
+  const [s2, setS2] = useState(initS2);
+  const [confirmed, setConfirmed] = useState(false);
   const lbl = (id) => { const t = teams.find(t => t.id === id); if (!t) return "?"; const p1 = state.players.find(p => p.id === t.p1Id)?.name?.split(" ")[0] || "?"; const p2 = state.players.find(p => p.id === t.p2Id)?.name?.split(" ")[0] || "?"; return `${p1} & ${p2}`; };
   const titles = { qf: "QUARTERFINAL", sf: "SEMIFINAL", final: "FINAL" };
+  const derived = (s1 !== null && s2 !== null && s1 !== s2) ? scoreToResult(s1, s2) : null;
+  const canConfirm = t1 && t2 && derived;
+  const ScoreBtn = ({ onClick, children }) => (
+    <button type="button" onClick={onClick} className="w-7 h-7 rounded-md bg-stone-800 border border-stone-700 text-stone-300 text-sm font-bold hover:bg-stone-700 active:scale-95 flex items-center justify-center">{children}</button>
+  );
   return <Modal open={true} onClose={onClose} title={`EDIT ${titles[match.round]}`}>
     <div className="space-y-3">
       <div className="text-xs text-amber-400 bg-amber-400/10 border border-amber-400/30 rounded-lg p-2 flex gap-2"><I.alert size={14} className="shrink-0 mt-0.5" /><span>Edit teams here for dropouts. May need to reset downstream rounds.</span></div>
-      <div><label className="text-xs text-stone-400 uppercase tracking-wider font-semibold mb-1 block">Team 1</label><select value={t1} onChange={e => setT1(e.target.value)} className="w-full bg-stone-900 border border-stone-700 rounded-lg px-3 py-2.5 text-stone-100"><option value="">— None —</option>{teams.filter(t => t.id !== t2).map(t => <option key={t.id} value={t.id}>{lbl(t.id)} (Group {t.group})</option>)}</select></div>
-      <div><label className="text-xs text-stone-400 uppercase tracking-wider font-semibold mb-1 block">Team 2</label><select value={t2} onChange={e => setT2(e.target.value)} className="w-full bg-stone-900 border border-stone-700 rounded-lg px-3 py-2.5 text-stone-100"><option value="">— None —</option>{teams.filter(t => t.id !== t1).map(t => <option key={t.id} value={t.id}>{lbl(t.id)} (Group {t.group})</option>)}</select></div>
-      {t1 && t2 && <div><label className="text-xs text-stone-400 uppercase tracking-wider font-semibold mb-1 block">Winner</label>
-        <div className="grid grid-cols-3 gap-2">
-          <button onClick={() => setW("team1")} className={`py-2 px-2 rounded-lg text-xs font-semibold ${w === "team1" ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40" : "bg-stone-900 text-stone-300 border border-stone-700"}`}>{lbl(t1)}</button>
-          <button onClick={() => setW("")} className={`py-2 px-2 rounded-lg text-xs font-semibold ${w === "" ? "bg-stone-700 text-stone-100" : "bg-stone-900 text-stone-500 border border-stone-800"}`}>Pending</button>
-          <button onClick={() => setW("team2")} className={`py-2 px-2 rounded-lg text-xs font-semibold ${w === "team2" ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40" : "bg-stone-900 text-stone-300 border border-stone-700"}`}>{lbl(t2)}</button>
-        </div></div>}
+      <div><label className="text-xs text-stone-400 uppercase tracking-wider font-semibold mb-1 block">Team 1</label><select value={t1} onChange={e => { setT1(e.target.value); setConfirmed(false); }} className="w-full bg-stone-900 border border-stone-700 rounded-lg px-3 py-2.5 text-stone-100"><option value="">— None —</option>{teams.filter(t => t.id !== t2).map(t => <option key={t.id} value={t.id}>{lbl(t.id)} (Group {t.group})</option>)}</select></div>
+      <div><label className="text-xs text-stone-400 uppercase tracking-wider font-semibold mb-1 block">Team 2</label><select value={t2} onChange={e => { setT2(e.target.value); setConfirmed(false); }} className="w-full bg-stone-900 border border-stone-700 rounded-lg px-3 py-2.5 text-stone-100"><option value="">— None —</option>{teams.filter(t => t.id !== t1).map(t => <option key={t.id} value={t.id}>{lbl(t.id)} (Group {t.group})</option>)}</select></div>
+      {t1 && t2 && <>
+        {!confirmed ? (
+          <div>
+            <label className="text-xs text-stone-400 uppercase tracking-wider font-semibold mb-2 block">Score</label>
+            <div className="flex items-center gap-3">
+              <div className="flex-1">
+                <div className="text-[10px] text-stone-500 mb-1 truncate text-center">{lbl(t1)}</div>
+                <div className="flex items-center justify-center gap-2">
+                  <ScoreBtn onClick={() => setS1(v => Math.max(0, (v ?? 0) - 1))}>−</ScoreBtn>
+                  <span className={`w-10 text-center font-mono text-2xl font-bold ${derived?.winner === "team1" ? "text-emerald-400" : derived?.winner === "team2" ? "text-stone-600" : "text-stone-200"}`}>{s1 ?? "—"}</span>
+                  <ScoreBtn onClick={() => setS1(v => Math.min(7, (v ?? 0) + 1))}>+</ScoreBtn>
+                </div>
+              </div>
+              <span className="text-stone-600 font-bold text-lg mt-4">—</span>
+              <div className="flex-1">
+                <div className="text-[10px] text-stone-500 mb-1 truncate text-center">{lbl(t2)}</div>
+                <div className="flex items-center justify-center gap-2">
+                  <ScoreBtn onClick={() => setS2(v => Math.max(0, (v ?? 0) - 1))}>−</ScoreBtn>
+                  <span className={`w-10 text-center font-mono text-2xl font-bold ${derived?.winner === "team2" ? "text-emerald-400" : derived?.winner === "team1" ? "text-stone-600" : "text-stone-200"}`}>{s2 ?? "—"}</span>
+                  <ScoreBtn onClick={() => setS2(v => Math.min(7, (v ?? 0) + 1))}>+</ScoreBtn>
+                </div>
+              </div>
+            </div>
+            <div className="mt-2 text-center text-xs">
+              {derived ? <span className="text-emerald-400">{lbl(derived.winner === "team1" ? t1 : t2)} wins · <span className="text-stone-500">{LOSS_TYPES.find(lt => lt.id === derived.lossType)?.label}</span></span>
+                : s1 !== null && s1 === s2 ? <span className="text-amber-400">Tied — adjust score</span>
+                : <span className="text-stone-600">Enter score above</span>}
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-xl p-4 text-center space-y-1" style={{ background: "rgba(16,185,129,.08)", border: "1px solid rgba(16,185,129,.25)" }}>
+            <div className="font-mono text-3xl font-bold text-stone-100">{s1} — {s2}</div>
+            <div className="text-emerald-400 text-sm font-semibold">{lbl(derived.winner === "team1" ? t1 : t2)} wins</div>
+            <div className="text-stone-500 text-xs">{LOSS_TYPES.find(lt => lt.id === derived.lossType)?.label}</div>
+          </div>
+        )}
+      </>}
       {match.round === "qf" && <Btn variant="secondary" className="w-full" onClick={() => { onReset(); onClose(); }}>Reset SFs + Final</Btn>}
-      <div className="flex gap-2 pt-2"><Btn variant="ghost" onClick={onClose}>Cancel</Btn><Btn onClick={() => { onSave({ team1Id: t1 || null, team2Id: t2 || null, winner: w || null }); onClose(); }}>Save</Btn></div>
+      <div className="flex gap-2 pt-2">
+        {confirmed && <Btn variant="ghost" onClick={() => setConfirmed(false)}>← Edit</Btn>}
+        <Btn variant="ghost" onClick={onClose} className={confirmed ? "" : "ml-auto"}>Cancel</Btn>
+        {!confirmed
+          ? <Btn onClick={() => canConfirm && setConfirmed(true)} disabled={!canConfirm}>Confirm →</Btn>
+          : <Btn onClick={() => { onSave({ team1Id: t1 || null, team2Id: t2 || null, ...derived }); onClose(); }}>Save Result ✓</Btn>
+        }
+      </div>
     </div>
   </Modal>;
 }
