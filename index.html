@@ -214,7 +214,7 @@ function parseTeamsFromText(text) {
   const teams = [];
   const parsePair = (line) => {
     line = line.replace(/^(?:team|فريق)\s*\d+\s*[:\-]\s*/i, '').trim();
-    for (const sep of [' & ', ' / ', ' – ', ' - ', ' vs ', ', ']) {
+    for (const sep of [' & ', ' / ', ' – ', ' - ', ' + ', ' vs ', ', ', '&', '/', '+']) {
       const idx = line.indexOf(sep);
       if (idx < 1) continue;
       const n1 = line.slice(0, idx).trim(), n2 = line.slice(idx + sep.length).trim();
