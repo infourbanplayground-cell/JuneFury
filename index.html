@@ -736,7 +736,7 @@ function PlayersView({ state, update, setOpenPlayerId, isAdmin }) {
   const [showAdd, setShowAdd] = useState(false);
   const [showBulk, setShowBulk] = useState(false);
   const [editPlayer, setEditPlayer] = useState(null);
-  const filtered = state.players.filter(p => !search || p.name.toLowerCase().includes(search.toLowerCase()));
+  const filtered = state.players.filter(p => !search || p.name.toLowerCase().includes(search.toLowerCase())).slice().sort((a, b) => a.name.localeCompare(b.name));
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
