@@ -83,21 +83,29 @@ async function apiPost(body) {
 
 async function saveStateChunked(state) {
   const json = JSON.stringify(state);
-  // Try a single request first — works on any backend, no chunk-action dependency.
-  // Handles moderate states (up to ~7KB) that fit in one GET URL.
-  if (json.length < 7000) {
+  // Single-request path: JSON must stay under ~2500 chars so URL-encoded form
+  // fits within Google's ~8KB URL limit (JSON structural chars encode to 3× each).
+  if (json.length < 2500) {
     try {
       const r = await apiGet("saveState", { state: json });
       if (r && r.ok) return r;
-    } catch (e) { /* URL too long / network — fall through to chunked */ }
+      // Backend returned ok:false (e.g. 9KB PropertiesService limit) — fall through
+    } catch (e) { /* URL too long — fall through to chunked */ }
   }
-  // Chunked fallback for large states (requires saveChunk backend support).
+  // Chunked path — requires updated Code.gs with saveChunk handler.
   const CHUNK = 1200;
   const total = Math.ceil(json.length / CHUNK);
   const sid = "s" + Date.now().toString(36);
   for (let i = 0; i < total; i++) {
     const r = await apiGet("saveChunk", { sid, i, total, chunk: json.slice(i * CHUNK, (i + 1) * CHUNK) });
-    if (r && r.ok === false && !r.pending) throw new Error(r.error || "Chunk save failed — update Code.gs");
+    if (r && r.ok === false && !r.pending) {
+      const msg = r.error || "saveChunk not recognised";
+      // Backend hasn't been updated — tell the user explicitly
+      if (msg.includes("Unknown action")) {
+        throw new Error("⚠️ Code.gs needs update — paste the new Code.gs in Apps Script and redeploy");
+      }
+      throw new Error(msg);
+    }
   }
   return { ok: true };
 }
@@ -500,7 +508,7 @@ function App() {
     setSync("syncing");
     saveTimer.current = setTimeout(async () => {
       try { await apiPost({ action: "saveState", state }); setSync("idle"); }
-      catch (e) { setSync("error"); }
+      catch (e) { setSync("error"); if (e.message && e.message.includes("Code.gs")) alert(e.message); }
     }, 600);
   }, [state, isAdmin]);
 
