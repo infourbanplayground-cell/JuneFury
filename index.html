@@ -83,14 +83,17 @@ async function apiPost(body) {
 
 async function saveStateChunked(state) {
   const json = JSON.stringify(state);
-  const CHUNK = 3500;
+  const CHUNK = 1200;
   if (json.length <= CHUNK) {
-    return apiGet("saveState", { state: json });
+    const r = await apiGet("saveState", { state: json });
+    if (r && r.ok === false) throw new Error(r.error || "Save failed");
+    return r;
   }
   const total = Math.ceil(json.length / CHUNK);
   const sid = "s" + Date.now().toString(36);
   for (let i = 0; i < total; i++) {
-    await apiGet("saveChunk", { sid, i, total, chunk: json.slice(i * CHUNK, (i + 1) * CHUNK) });
+    const r = await apiGet("saveChunk", { sid, i, total, chunk: json.slice(i * CHUNK, (i + 1) * CHUNK) });
+    if (r && r.ok === false && !r.pending) throw new Error(r.error || "Chunk save failed");
   }
   return { ok: true };
 }
@@ -141,6 +144,35 @@ function parseWhatsAppNames(text) {
   }
   return [...names];
 }
+function parseTeamsFromText(text) {
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  const waPattern = /^\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4},? \d{1,2}:\d{2}(?::\d{2})?(?: [AP]M)? [-–] (.+?): (.*)/;
+  const teams = [];
+  const parsePair = (line) => {
+    line = line.replace(/^(?:team|فريق)\s*\d+\s*[:\-]\s*/i, '').trim();
+    for (const sep of [' & ', ' / ', ' – ', ' - ', ' vs ', ', ']) {
+      const idx = line.indexOf(sep);
+      if (idx < 1) continue;
+      const n1 = line.slice(0, idx).trim(), n2 = line.slice(idx + sep.length).trim();
+      if (n1.length > 1 && n2.length > 1 && n1.length < 60 && n2.length < 60) return [n1, n2];
+    }
+    return null;
+  };
+  if (lines.some(l => waPattern.test(l))) {
+    lines.forEach(l => { const m = l.match(waPattern); if (!m) return; const p = parsePair(m[2]); if (p) teams.push(p); });
+  } else {
+    lines.forEach(l => { const p = parsePair(l); if (p) teams.push(p); });
+  }
+  return teams;
+}
+
+function resolvePlayer(name, players) {
+  const exact = players.find(p => p.name.toLowerCase() === name.toLowerCase());
+  if (exact) return exact;
+  const f = fuzzyMatch(name, players.map(p => p.name), 3);
+  return f ? players.find(p => p.name === f.match) : null;
+}
+
 function getSessionGroups(session) {
   return GROUPS.slice(0, session?.groupCount || 4);
 }
@@ -885,6 +917,82 @@ function WhatsAppImportModal({ onClose, onAdd, existing }) {
   </Modal>;
 }
 
+function WhatsAppTeamImportModal({ onClose, state, session, leaderboard, onImport }) {
+  const [text, setText] = useState("");
+  const [step, setStep] = useState("paste");
+  const [excluded, setExcluded] = useState({});
+  const groups = getSessionGroups(session);
+  const existingPairs = new Set((session.teams || []).map(t => [t.p1Id, t.p2Id].sort().join("|")));
+
+  const parsed = useMemo(() => {
+    if (!text.trim()) return [];
+    return parseTeamsFromText(text).map(([n1, n2]) => {
+      const m1 = resolvePlayer(n1, state.players);
+      const m2 = resolvePlayer(n2, state.players);
+      const dup = m1 && m2 && existingPairs.has([m1.id, m2.id].sort().join("|"));
+      return { n1, n2, m1, m2, dup };
+    });
+  }, [text]);
+
+  const toImport = parsed.filter((p, i) => !p.dup && !excluded[i] && p.m1 && p.m2);
+  const unmatched = parsed.filter(p => !p.m1 || !p.m2);
+
+  const handleImport = () => {
+    const newTeams = toImport.map(p => ({ id: uid("t"), p1Id: p.m1.id, p2Id: p.m2.id, group: groups[0] }));
+    onImport(newTeams);
+    onClose();
+  };
+
+  return <Modal open={true} onClose={onClose} title="IMPORT TEAMS">
+    <div className="space-y-3">
+      {step === "paste" ? <>
+        <div className="text-xs text-stone-400">Paste WA chat export or plain list. One team per line, separated by &nbsp;<code className="text-orange-400">&amp;</code> or <code className="text-orange-400">/</code><br />e.g. <span className="text-stone-300">Ahmed & Khalid</span></div>
+        <textarea value={text} onChange={e => setText(e.target.value)} rows={10}
+          placeholder={"Ahmed Al Wahaibi & Khalid Al Harthi\nMohammed & Sultan\nFaisal / Omar\n\nOR from WA:\n31/05/2025, 10:23 - Coach: Ahmed & Khalid"}
+          className="w-full bg-stone-900 border border-stone-700 rounded-lg px-3 py-2.5 text-stone-100 font-mono text-xs focus:outline-none focus:border-orange-500" />
+        <div className="flex gap-2">
+          <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
+          <Btn onClick={() => setStep("review")} disabled={!text.trim()}>Extract Teams →</Btn>
+        </div>
+      </> : <>
+        <div className="text-xs text-stone-400 mb-2">{parsed.length} pairs found · {toImport.length} ready to import{unmatched.length > 0 ? ` · ${unmatched.length} unmatched` : ""}</div>
+        <div className="space-y-1.5 max-h-72 overflow-y-auto">
+          {parsed.map((p, i) => (
+            <div key={i} className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm" style={{
+              background: p.dup ? "rgba(16,185,129,0.06)" : (!p.m1 || !p.m2) ? "rgba(239,68,68,0.06)" : "rgba(28,25,23,0.7)",
+              border: p.dup ? "1px solid rgba(16,185,129,0.2)" : (!p.m1 || !p.m2) ? "1px solid rgba(239,68,68,0.2)" : "1px solid rgba(68,64,60,0.5)"
+            }}>
+              {p.dup ? (
+                <><Icon d='<path d="M20 6L9 17l-5-5"/>' size={14} style={{color:"#10b981"}} /><span className="flex-1 text-stone-400 line-through text-xs">{p.n1} & {p.n2}</span><span className="text-[10px] text-emerald-500">exists</span></>
+              ) : (!p.m1 || !p.m2) ? (
+                <><Icon d='<path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>' size={14} style={{color:"#f87171"}} />
+                <div className="flex-1 min-w-0 text-xs">
+                  <span className={p.m1 ? "text-stone-200" : "text-red-400"}>{p.n1}</span>
+                  <span className="text-stone-500 mx-1">&</span>
+                  <span className={p.m2 ? "text-stone-200" : "text-red-400"}>{p.n2}</span>
+                  <div className="text-[10px] text-red-400">{[!p.m1 && p.n1, !p.m2 && p.n2].filter(Boolean).join(", ")} not in player list</div>
+                </div></>
+              ) : (
+                <><input type="checkbox" checked={!excluded[i]} onChange={e => setExcluded(c => ({...c, [i]: !e.target.checked}))} className="accent-orange-500" />
+                <div className="flex-1 min-w-0 text-xs">
+                  <span className="text-stone-100">{p.m1.name}</span>
+                  <span className="text-stone-500 mx-1">&</span>
+                  <span className="text-stone-100">{p.m2.name}</span>
+                  {(p.n1 !== p.m1.name || p.n2 !== p.m2.name) && <div className="text-[10px] text-amber-400">matched from: {p.n1} & {p.n2}</div>}
+                </div></>
+              )}
+            </div>
+          ))}
+        </div>
+        <div className="flex gap-2 pt-1">
+          <Btn variant="ghost" onClick={() => setStep("paste")}>← Back</Btn>
+          <Btn onClick={handleImport} disabled={!toImport.length}>Import {toImport.length} Teams + Auto-Seed</Btn>
+        </div>
+      </>}
+    </div>
+  </Modal>;
+}
+
 function SessionsView({ state, update, setOpenSessionId, isAdmin }) {
   const [show, setShow] = useState(false);
   return (
@@ -1018,39 +1126,48 @@ function SessionDetail({ session, state, isAdmin, onClose, updateSession, delete
 
 function TeamsTab({ session, state, updateSession, isAdmin, leaderboard }) {
   const [showAdd, setShowAdd] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [edit, setEdit] = useState(null);
   const teams = session.teams || [];
   const groups = getSessionGroups(session);
   const maxTeams = groups.length * 4;
   const byGroup = groups.reduce((a, g) => (a[g] = teams.filter(t => t.group === g), a), {});
 
-  const autoSeedGroups = () => {
-    if (teams.length === 0) return;
-    // Rank teams by combined leaderboard position of both players
-    const ranked = [...teams].sort((a, b) => {
-      const rankOf = (pid) => { const idx = leaderboard.findIndex(e => e.player.id === pid); return idx === -1 ? 999 : idx; };
-      const scoreA = rankOf(a.p1Id) + rankOf(a.p2Id);
-      const scoreB = rankOf(b.p1Id) + rankOf(b.p2Id);
-      return scoreA - scoreB;
-    });
-    // Serpentine seeding across groups
-    const groupAssign = [];
+  const serpentineSeed = (allTeams) => {
+    const rankOf = (pid) => { const idx = (leaderboard || []).findIndex(e => e.player.id === pid); return idx === -1 ? 999 : idx; };
+    const ranked = [...allTeams].sort((a, b) => (rankOf(a.p1Id) + rankOf(a.p2Id)) - (rankOf(b.p1Id) + rankOf(b.p2Id)));
+    const assign = [];
     let dir = 1, gi = 0;
     for (let i = 0; i < ranked.length; i++) {
-      groupAssign.push(groups[gi]);
+      assign.push(groups[gi]);
       gi += dir;
       if (gi >= groups.length) { gi = groups.length - 1; dir = -1; }
       else if (gi < 0) { gi = 0; dir = 1; }
     }
-    updateSession(s => ({ ...s, teams: s.teams.map((t, i) => { const idx = ranked.findIndex(r => r.id === t.id); return idx !== -1 ? { ...t, group: groupAssign[idx] } : t; }) }));
+    return ranked.map((t, i) => ({ ...t, group: assign[i] }));
+  };
+
+  const autoSeedGroups = () => {
+    if (teams.length === 0) return;
+    const seeded = serpentineSeed(teams);
+    updateSession(s => ({ ...s, teams: s.teams.map(t => { const u = seeded.find(r => r.id === t.id); return u ? { ...t, group: u.group } : t; }) }));
+  };
+
+  const handleImport = (newTeams) => {
+    updateSession(s => {
+      const all = [...(s.teams || []), ...newTeams];
+      const seeded = serpentineSeed(all);
+      return { ...s, teams: seeded };
+    });
   };
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div><div className="text-stone-200 font-semibold">{teams.length} / {maxTeams} teams</div>{isAdmin && <div className="text-xs text-stone-500">Tap team to edit · {groups.length} groups</div>}</div>
-        {isAdmin && <div className="flex gap-2">
-          {teams.length > 0 && <Btn size="sm" variant="secondary" onClick={autoSeedGroups}><I.bolt size={14} /> Auto-Seed</Btn>}
+        {isAdmin && <div className="flex gap-2 flex-wrap">
+          {teams.length > 0 && <Btn size="sm" variant="secondary" onClick={autoSeedGroups}><I.bolt size={14} /> Re-Seed</Btn>}
+          <Btn size="sm" variant="secondary" onClick={() => setShowImport(true)}><I.users size={14} /> Import</Btn>
           <Btn size="sm" onClick={() => setShowAdd(true)} disabled={teams.length >= maxTeams}><I.plus size={14} /> Add</Btn>
         </div>}
       </div>
@@ -1076,6 +1193,7 @@ function TeamsTab({ session, state, updateSession, isAdmin, leaderboard }) {
       ))}
       {showAdd && <TeamFormModal title="ADD TEAM" state={state} session={session} groups={groups} onClose={() => setShowAdd(false)} onSave={(t) => updateSession(s => ({ ...s, teams: [...(s.teams || []), { id: uid("t"), ...t }] }))} />}
       {edit && <TeamFormModal title="EDIT TEAM" state={state} session={session} groups={groups} initial={edit} onClose={() => setEdit(null)} onSave={(t) => updateSession(s => ({ ...s, teams: s.teams.map(x => x.id === edit.id ? { ...x, ...t } : x) }))} onDelete={() => updateSession(s => ({ ...s, teams: s.teams.filter(x => x.id !== edit.id) }))} />}
+      {showImport && <WhatsAppTeamImportModal onClose={() => setShowImport(false)} state={state} session={session} leaderboard={leaderboard || []} onImport={handleImport} />}
     </div>
   );
 }
@@ -1199,35 +1317,36 @@ function BracketTab({ session, state, updateSession, isAdmin }) {
   const seedQF = () => {
     const groups = getSessionGroups(session);
     const qCount = getQualifyCount(session);
-    // Collect qualifiers per group in order
+    // Collect qualifiers with group points for cross-group ranking
     const qualifiers = [];
     for (const g of groups) {
       const s = calcGroupStandings(session, g);
       for (let i = 0; i < qCount; i++) {
-        if (s[i]?.team?.id) qualifiers.push({ teamId: s[i].team.id, groupRank: i, group: g });
+        if (s[i]?.team?.id) qualifiers.push({ teamId: s[i].team.id, pts: s[i].pts, wins: s[i].wins, groupRank: i });
       }
     }
-    const total = qualifiers.length;
-    if (qualifiers.some(q => !q.teamId)) { alert(`Need top ${qCount} from each group first`); return; }
+    if (qualifiers.length === 0) { alert("No qualified teams yet"); return; }
+    // Rank all qualifiers by pts desc → wins desc → groupRank asc
+    const seeded = [...qualifiers].sort((a, b) => b.pts - a.pts || b.wins - a.wins || a.groupRank - b.groupRank);
+    const total = seeded.length;
     if (total === 2) {
-      // Final only
-      updateSession(s => ({ ...s, bracket: { qf: [], sf: [], final: { id: uid("f"), team1Id: qualifiers[0].teamId, team2Id: qualifiers[1].teamId, winner: null } } }));
+      updateSession(s => ({ ...s, bracket: { qf: [], sf: [], final: { id: uid("f"), team1Id: seeded[0].teamId, team2Id: seeded[1].teamId, winner: null } } }));
     } else if (total <= 4) {
-      // SF → Final (pair top seeds vs bottom seeds)
-      updateSession(s => ({ ...s, bracket: { qf: [], sf: [
-        { id: uid("sf"), slot: 1, team1Id: qualifiers[0].teamId, team2Id: qualifiers[total-1].teamId, winner: null },
-        { id: uid("sf"), slot: 2, team1Id: qualifiers[1].teamId, team2Id: qualifiers[total-2].teamId, winner: null },
-      ], final: null } }));
+      // SF: 1v(last), 2v(2nd last)
+      const sf = [];
+      for (let i = 0; i < Math.floor(total / 2); i++) {
+        sf.push({ id: uid("sf"), slot: i+1, team1Id: seeded[i].teamId, team2Id: seeded[total-1-i].teamId, winner: null });
+      }
+      updateSession(s => ({ ...s, bracket: { qf: [], sf, final: null } }));
     } else {
-      // QF → SF → Final (cross-bracket seeding for 8)
-      const tops = qualifiers.filter(q => q.groupRank === 0);
-      const runners = qualifiers.filter(q => q.groupRank === 1);
-      updateSession(s => ({ ...s, bracket: { qf: [
-        { id: uid("qf"), slot: 1, team1Id: tops[0]?.teamId, team2Id: runners[1]?.teamId, winner: null },
-        { id: uid("qf"), slot: 2, team1Id: tops[2]?.teamId, team2Id: runners[3]?.teamId, winner: null },
-        { id: uid("qf"), slot: 3, team1Id: tops[1]?.teamId, team2Id: runners[0]?.teamId, winner: null },
-        { id: uid("qf"), slot: 4, team1Id: tops[3]?.teamId, team2Id: runners[2]?.teamId, winner: null },
-      ].filter(m => m.team1Id && m.team2Id), sf: [], final: null } }));
+      // Top 8 QF seeding: 1v8, 4v5 (top half) | 2v7, 3v6 (bottom half)
+      const qf = [
+        { id: uid("qf"), slot: 1, team1Id: seeded[0]?.teamId, team2Id: seeded[7]?.teamId, winner: null },
+        { id: uid("qf"), slot: 2, team1Id: seeded[3]?.teamId, team2Id: seeded[4]?.teamId, winner: null },
+        { id: uid("qf"), slot: 3, team1Id: seeded[1]?.teamId, team2Id: seeded[6]?.teamId, winner: null },
+        { id: uid("qf"), slot: 4, team1Id: seeded[2]?.teamId, team2Id: seeded[5]?.teamId, winner: null },
+      ].filter(m => m.team1Id && m.team2Id);
+      updateSession(s => ({ ...s, bracket: { qf, sf: [], final: null } }));
     }
   };
   const lbl = (id) => { const t = teams.find(t => t.id === id); if (!t) return "—"; const p1 = state.players.find(p => p.id === t.p1Id)?.name?.split(" ")[0] || "?"; const p2 = state.players.find(p => p.id === t.p2Id)?.name?.split(" ")[0] || "?"; return `${p1} & ${p2}`; };
