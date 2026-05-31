@@ -68,10 +68,8 @@ function apiGet(action, params = {}) {
 }
 
 async function apiPost(body) {
-  // Use GET+JSONP for saves — Apps Script redirects POST requests which causes
-  // fetch(no-cors) to silently drop the body. JSONP GET is reliable.
   if (body.action === "saveState") {
-    return apiGet("saveState", { state: JSON.stringify(body.state) });
+    return saveStateChunked(body.state);
   }
   if (!API_URL || API_URL.includes("PASTE_YOUR")) throw new Error("API not configured");
   await fetch(API_URL, {
@@ -80,6 +78,20 @@ async function apiPost(body) {
     headers: { "Content-Type": "text/plain;charset=utf-8" },
     body: JSON.stringify(body),
   });
+  return { ok: true };
+}
+
+async function saveStateChunked(state) {
+  const json = JSON.stringify(state);
+  const CHUNK = 3500;
+  if (json.length <= CHUNK) {
+    return apiGet("saveState", { state: json });
+  }
+  const total = Math.ceil(json.length / CHUNK);
+  const sid = "s" + Date.now().toString(36);
+  for (let i = 0; i < total; i++) {
+    await apiGet("saveChunk", { sid, i, total, chunk: json.slice(i * CHUNK, (i + 1) * CHUNK) });
+  }
   return { ok: true };
 }
 

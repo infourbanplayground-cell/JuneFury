@@ -17,10 +17,16 @@ function doGet(e) {
     else if (action === "getState") result = { ok: true, state: readState() };
     else if (action === "unlock") result = { ok: String(e.parameter.pin) === String(ADMIN_PIN) };
     else if (action === "saveState") {
-      // accepts both "state" (sent by app) and "data" (legacy)
       const raw = e.parameter.state || e.parameter.data || "{}";
       writeState(JSON.parse(raw));
       result = { ok: true };
+    } else if (action === "saveChunk") {
+      result = handleChunk(
+        e.parameter.sid,
+        parseInt(e.parameter.i || 0),
+        parseInt(e.parameter.total || 1),
+        e.parameter.chunk || ""
+      );
     } else result = { ok: false, error: "Unknown action: " + action };
   } catch (err) {
     result = { ok: false, error: String(err && err.message || err) };
@@ -43,20 +49,77 @@ function doPost(e) {
   }
 }
 
+// ─── CHUNK HANDLER ────────────────────────────────────────────
+
+function handleChunk(sid, idx, total, chunk) {
+  if (!sid) return { ok: false, error: "Missing sid" };
+  const props = PropertiesService.getScriptProperties();
+  props.setProperty("CH_" + sid + "_" + idx, chunk);
+
+  // Check if all chunks have arrived
+  var assembled = "";
+  for (var i = 0; i < total; i++) {
+    var c = props.getProperty("CH_" + sid + "_" + i);
+    if (c === null) return { ok: true, pending: true };
+    assembled += c;
+  }
+
+  // All chunks received — save and clean up
+  var state = JSON.parse(assembled);
+  writeState(state);
+  for (var i = 0; i < total; i++) {
+    props.deleteProperty("CH_" + sid + "_" + i);
+  }
+  return { ok: true };
+}
+
 // ─── STATE STORAGE ────────────────────────────────────────────
 
 function readState() {
   const props = PropertiesService.getScriptProperties();
-  const json = props.getProperty("STATE_JSON");
-  if (!json) return null;
-  try { return JSON.parse(json); } catch (e) { return null; }
+
+  // Try chunked storage first (handles states > 9KB)
+  const numChunks = parseInt(props.getProperty("STATE_NC") || "0");
+  if (numChunks > 0) {
+    var json = "";
+    for (var i = 0; i < numChunks; i++) {
+      var c = props.getProperty("STATE_C_" + i);
+      if (!c) { json = ""; break; }
+      json += c;
+    }
+    if (json) {
+      try { return JSON.parse(json); } catch (e) {}
+    }
+  }
+
+  // Fallback: single property (legacy / small states)
+  const j = props.getProperty("STATE_JSON");
+  if (!j) return null;
+  try { return JSON.parse(j); } catch (e) { return null; }
 }
 
 function writeState(state) {
   if (!state || typeof state !== "object") throw new Error("Invalid state");
   const props = PropertiesService.getScriptProperties();
   state._lastUpdated = Date.now();
-  props.setProperty("STATE_JSON", JSON.stringify(state));
+  const json = JSON.stringify(state);
+
+  // Store in 8KB chunks — PropertiesService limit is 9KB per key
+  const CHUNK_SIZE = 8000;
+  const numChunks = Math.ceil(json.length / CHUNK_SIZE);
+
+  // Delete old chunks
+  const oldCount = parseInt(props.getProperty("STATE_NC") || "0");
+  for (var i = 0; i < oldCount; i++) {
+    try { props.deleteProperty("STATE_C_" + i); } catch (e) {}
+  }
+
+  // Write new chunks
+  for (var i = 0; i < numChunks; i++) {
+    props.setProperty("STATE_C_" + i, json.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE));
+  }
+  props.setProperty("STATE_NC", String(numChunks));
+
   try { updateLeaderboardSheet(state); } catch (e) { Logger.log("LB update failed: " + e); }
   try { updateSessionsSheet(state); } catch (e) { Logger.log("Sessions sheet failed: " + e); }
 }
@@ -176,7 +239,6 @@ function updateLeaderboardSheet(state) {
   }).filter(function(r) { return r.sessions > 0; })
     .sort(function(a, b) { return b.total - a.total; });
 
-  // Header
   sh.getRange(1, 1, 1, 6).setValues([["Rank", "Player", "Pts", "Sessions", "Wins", "🏆"]])
     .setFontWeight("bold").setBackground("#0a0807").setFontColor("#fbbf24").setHorizontalAlignment("center");
   sh.setColumnWidth(1, 50); sh.setColumnWidth(2, 220); sh.setColumnWidth(3, 70);
@@ -261,7 +323,7 @@ function resetAll() {
   const ui = SpreadsheetApp.getUi();
   const r = ui.alert("Reset everything?", "This will permanently delete all June Fury data.", ui.ButtonSet.YES_NO);
   if (r !== ui.Button.YES) return;
-  PropertiesService.getScriptProperties().deleteProperty("STATE_JSON");
+  PropertiesService.getScriptProperties().deleteAllProperties();
   try { getSheet("Leaderboard").clear(); } catch (e) {}
   try { getSheet("Sessions").clear(); } catch (e) {}
   ui.alert("Done — all data cleared.");
