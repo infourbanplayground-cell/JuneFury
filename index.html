@@ -83,17 +83,21 @@ async function apiPost(body) {
 
 async function saveStateChunked(state) {
   const json = JSON.stringify(state);
-  const CHUNK = 1200;
-  if (json.length <= CHUNK) {
-    const r = await apiGet("saveState", { state: json });
-    if (r && r.ok === false) throw new Error(r.error || "Save failed");
-    return r;
+  // Try a single request first — works on any backend, no chunk-action dependency.
+  // Handles moderate states (up to ~7KB) that fit in one GET URL.
+  if (json.length < 7000) {
+    try {
+      const r = await apiGet("saveState", { state: json });
+      if (r && r.ok) return r;
+    } catch (e) { /* URL too long / network — fall through to chunked */ }
   }
+  // Chunked fallback for large states (requires saveChunk backend support).
+  const CHUNK = 1200;
   const total = Math.ceil(json.length / CHUNK);
   const sid = "s" + Date.now().toString(36);
   for (let i = 0; i < total; i++) {
     const r = await apiGet("saveChunk", { sid, i, total, chunk: json.slice(i * CHUNK, (i + 1) * CHUNK) });
-    if (r && r.ok === false && !r.pending) throw new Error(r.error || "Chunk save failed");
+    if (r && r.ok === false && !r.pending) throw new Error(r.error || "Chunk save failed — update Code.gs");
   }
   return { ok: true };
 }
@@ -1317,35 +1321,50 @@ function BracketTab({ session, state, updateSession, isAdmin }) {
   const seedQF = () => {
     const groups = getSessionGroups(session);
     const qCount = getQualifyCount(session);
-    // Collect qualifiers with group points for cross-group ranking
-    const qualifiers = [];
-    for (const g of groups) {
-      const s = calcGroupStandings(session, g);
-      for (let i = 0; i < qCount; i++) {
-        if (s[i]?.team?.id) qualifiers.push({ teamId: s[i].team.id, pts: s[i].pts, wins: s[i].wins, groupRank: i });
+    const standings = groups.map(g => calcGroupStandings(session, g));
+    const N = groups.length;
+
+    // Cross-group seeding (1st of group vs 2nd of opposite group) when top-2 qualify
+    if (qCount >= 2 && (N === 2 || N === 4)) {
+      const winners = standings.map((s, i) => ({ id: s[0]?.team?.id, seed: groups[i] + "1" }));
+      const runners = standings.map((s, i) => ({ id: s[1]?.team?.id, seed: groups[i] + "2" }));
+      if (winners.some(w => !w.id) || runners.some(r => !r.id)) { alert("Need top 2 in every group first"); return; }
+      // winners[i] vs runners[N-1-i]: A1 vs D2, B1 vs C2, C1 vs B2, D1 vs A2
+      const pairs = winners.map((w, i) => ({ a: w, b: runners[N - 1 - i] }));
+      if (N === 2) {
+        // 4 teams → straight to semifinals
+        const sf = pairs.map((p, i) => ({ id: uid("sf"), slot: i + 1, team1Id: p.a.id, team2Id: p.b.id, s1: p.a.seed, s2: p.b.seed, winner: null }));
+        updateSession(s => ({ ...s, bracket: { qf: [], sf, final: null } }));
+      } else {
+        // 8 teams → QF order keeps bracket halves balanced: A1vD2, C1vB2 | B1vC2, D1vA2
+        const order = [0, 2, 1, 3];
+        const qf = order.map((idx, i) => ({ id: uid("qf"), slot: i + 1, team1Id: pairs[idx].a.id, team2Id: pairs[idx].b.id, s1: pairs[idx].a.seed, s2: pairs[idx].b.seed, winner: null }));
+        updateSession(s => ({ ...s, bracket: { qf, sf: [], final: null } }));
       }
+      return;
     }
+
+    // Fallback (top-1 qualify, or odd group counts): rank all qualifiers by points
+    const qualifiers = [];
+    standings.forEach((s, gi) => {
+      for (let i = 0; i < qCount; i++) {
+        if (s[i]?.team?.id) qualifiers.push({ teamId: s[i].team.id, pts: s[i].pts, wins: s[i].wins, groupRank: i, seed: groups[gi] + (i + 1) });
+      }
+    });
     if (qualifiers.length === 0) { alert("No qualified teams yet"); return; }
-    // Rank all qualifiers by pts desc → wins desc → groupRank asc
     const seeded = [...qualifiers].sort((a, b) => b.pts - a.pts || b.wins - a.wins || a.groupRank - b.groupRank);
     const total = seeded.length;
     if (total === 2) {
-      updateSession(s => ({ ...s, bracket: { qf: [], sf: [], final: { id: uid("f"), team1Id: seeded[0].teamId, team2Id: seeded[1].teamId, winner: null } } }));
+      updateSession(s => ({ ...s, bracket: { qf: [], sf: [], final: { id: uid("f"), team1Id: seeded[0].teamId, team2Id: seeded[1].teamId, s1: seeded[0].seed, s2: seeded[1].seed, winner: null } } }));
     } else if (total <= 4) {
-      // SF: 1v(last), 2v(2nd last)
       const sf = [];
       for (let i = 0; i < Math.floor(total / 2); i++) {
-        sf.push({ id: uid("sf"), slot: i+1, team1Id: seeded[i].teamId, team2Id: seeded[total-1-i].teamId, winner: null });
+        sf.push({ id: uid("sf"), slot: i + 1, team1Id: seeded[i].teamId, team2Id: seeded[total - 1 - i].teamId, s1: seeded[i].seed, s2: seeded[total - 1 - i].seed, winner: null });
       }
       updateSession(s => ({ ...s, bracket: { qf: [], sf, final: null } }));
     } else {
-      // Top 8 QF seeding: 1v8, 4v5 (top half) | 2v7, 3v6 (bottom half)
-      const qf = [
-        { id: uid("qf"), slot: 1, team1Id: seeded[0]?.teamId, team2Id: seeded[7]?.teamId, winner: null },
-        { id: uid("qf"), slot: 2, team1Id: seeded[3]?.teamId, team2Id: seeded[4]?.teamId, winner: null },
-        { id: uid("qf"), slot: 3, team1Id: seeded[1]?.teamId, team2Id: seeded[6]?.teamId, winner: null },
-        { id: uid("qf"), slot: 4, team1Id: seeded[2]?.teamId, team2Id: seeded[5]?.teamId, winner: null },
-      ].filter(m => m.team1Id && m.team2Id);
+      const pick = [[0,7],[3,4],[1,6],[2,5]];
+      const qf = pick.map(([x, y], i) => seeded[x] && seeded[y] ? { id: uid("qf"), slot: i + 1, team1Id: seeded[x].teamId, team2Id: seeded[y].teamId, s1: seeded[x].seed, s2: seeded[y].seed, winner: null } : null).filter(Boolean);
       updateSession(s => ({ ...s, bracket: { qf, sf: [], final: null } }));
     }
   };
@@ -1398,13 +1417,17 @@ function BracketTab({ session, state, updateSession, isAdmin }) {
   );
 }
 
+function SeedBadge({ seed }) {
+  if (!seed) return null;
+  return <span className="inline-flex items-center justify-center px-1.5 py-0.5 rounded text-[9px] font-bold font-mono text-stone-950 shrink-0" style={{ background: "linear-gradient(135deg, #fbbf24, #f97316)" }}>{seed}</span>;
+}
 function BracketRow({ match, lbl, onClick, big }) {
   const w = match.winner;
   return <button onClick={onClick} className={`w-full ${big ? "p-3" : "p-2"} rounded-lg bg-stone-900/50 hover:bg-stone-800/70 text-left`}>
     <div className="flex items-center gap-2">
-      <div className={`flex-1 ${big ? "text-base" : "text-sm"} truncate ${w === "team1" ? "text-emerald-400 font-bold" : "text-stone-300"}`}>{w === "team1" && <I.trophy size={big ? 14 : 11} className="inline mr-1" />}{lbl(match.team1Id)}</div>
-      <span className="text-stone-600 font-mono text-xs">vs</span>
-      <div className={`flex-1 ${big ? "text-base" : "text-sm"} truncate text-right ${w === "team2" ? "text-emerald-400 font-bold" : "text-stone-300"}`}>{lbl(match.team2Id)}{w === "team2" && <I.trophy size={big ? 14 : 11} className="inline ml-1" />}</div>
+      <div className={`flex-1 min-w-0 flex items-center gap-1.5 ${big ? "text-base" : "text-sm"} ${w === "team1" ? "text-emerald-400 font-bold" : "text-stone-300"}`}>{w === "team1" && <I.trophy size={big ? 14 : 11} className="shrink-0" />}<SeedBadge seed={match.s1} /><span className="truncate">{lbl(match.team1Id)}</span></div>
+      <span className="text-stone-600 font-mono text-xs shrink-0">vs</span>
+      <div className={`flex-1 min-w-0 flex items-center justify-end gap-1.5 ${big ? "text-base" : "text-sm"} ${w === "team2" ? "text-emerald-400 font-bold" : "text-stone-300"}`}><span className="truncate">{lbl(match.team2Id)}</span><SeedBadge seed={match.s2} />{w === "team2" && <I.trophy size={big ? 14 : 11} className="shrink-0" />}</div>
     </div>
   </button>;
 }
