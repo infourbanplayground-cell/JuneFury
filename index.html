@@ -933,7 +933,7 @@ function DashboardView({ state, leaderboard, setTab, setOpenSessionId, isAdmin }
               <I.lock size={14} style={{ color: "#f87171" }} />
               <span className="text-red-300 font-bold text-sm uppercase tracking-wide">Loyalty Lockout</span>
             </div>
-            <div className="text-xs text-stone-400 leading-relaxed">Win any match with a partner → you cannot pair with them again for the rest of the series.</div>
+            <div className="text-xs text-stone-400 leading-relaxed">Win the session final with a partner → you cannot pair with them again for the rest of the series.</div>
           </div>
         </div>
       </div>
@@ -1498,7 +1498,7 @@ function TeamFormModal({ title, state, session, groups, initial, onClose, onSave
     if (!p1 || !p2) return null;
     const others = state.sessions.filter(s => s.id !== session.id);
     const locked = getLockedPartners(p1, others);
-    return locked.has(p2) ? "These players won together before. Loyalty Lockout!" : null;
+    return locked.has(p2) ? "These players won a final together before. Loyalty Lockout!" : null;
   }, [p1, p2, state.sessions, session.id]);
   const used = (session.teams || []).filter(t => !initial || t.id !== initial.id).flatMap(t => [t.p1Id, t.p2Id]);
   return <Modal open={true} onClose={onClose} title={title}>
