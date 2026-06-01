@@ -1604,6 +1604,13 @@ function MatchEditorModal({ session, state, group, match, onClose, onSave, onDel
   const [s2, setS2] = useState(initS2);
   const lbl = (t) => t ? `${state.players.find(p => p.id === t.p1Id)?.name?.split(" ")[0] || "?"} & ${state.players.find(p => p.id === t.p2Id)?.name?.split(" ")[0] || "?"}` : "?";
 
+  const playedPairs = new Set(
+    (session.groupMatches || [])
+      .filter(m => m.winner && (!match || m.id !== match.id))
+      .map(m => [m.team1Id, m.team2Id].sort().join("|"))
+  );
+  const hasPlayed = (id1, id2) => id1 && id2 && playedPairs.has([id1, id2].sort().join("|"));
+
   const derived = (s1 !== null && s2 !== null && s1 !== s2) ? scoreToResult(s1, s2) : null;
   const [confirmed, setConfirmed] = useState(false);
   const canConfirm = t1 && t2 && derived;
@@ -1617,12 +1624,12 @@ function MatchEditorModal({ session, state, group, match, onClose, onSave, onDel
     <div className="space-y-3">
       <div><label className="text-xs text-stone-400 uppercase tracking-wider font-semibold mb-1 block">Team 1</label>
         <select value={t1} onChange={e => { setT1(e.target.value); setConfirmed(false); }} className="w-full bg-stone-900 border border-stone-700 rounded-lg px-3 py-2.5 text-stone-100 focus:outline-none focus:border-orange-500">
-          <option value="">Pick team</option>{teams.filter(t => t.id !== t2).map(t => <option key={t.id} value={t.id}>{lbl(t)}</option>)}
+          <option value="">Pick team</option>{teams.filter(t => t.id !== t2 && !hasPlayed(t.id, t2)).map(t => <option key={t.id} value={t.id}>{lbl(t)}</option>)}
         </select>
       </div>
       <div><label className="text-xs text-stone-400 uppercase tracking-wider font-semibold mb-1 block">Team 2</label>
         <select value={t2} onChange={e => { setT2(e.target.value); setConfirmed(false); }} className="w-full bg-stone-900 border border-stone-700 rounded-lg px-3 py-2.5 text-stone-100 focus:outline-none focus:border-orange-500">
-          <option value="">Pick team</option>{teams.filter(t => t.id !== t1).map(t => <option key={t.id} value={t.id}>{lbl(t)}</option>)}
+          <option value="">Pick team</option>{teams.filter(t => t.id !== t1 && !hasPlayed(t1, t.id)).map(t => <option key={t.id} value={t.id}>{lbl(t)}</option>)}
         </select>
       </div>
       {t1 && t2 && <>
