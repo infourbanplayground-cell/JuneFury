@@ -1332,7 +1332,7 @@ function SessionDetail({ session, state, isAdmin, canScore, onClose, updateSessi
         </div>
       </div>
       <div className="max-w-3xl mx-auto px-4 py-4 pb-24">
-        {tab === "teams" && <TeamsTab session={session} state={state} updateSession={updateSession} update={update} isAdmin={canScore} leaderboard={leaderboard || []} />}
+        {tab === "teams" && <TeamsTab session={session} state={state} updateSession={updateSession} update={update} isAdmin={isAdmin} leaderboard={leaderboard || []} />}
         {tab === "groups" && <GroupsTab session={session} state={state} updateSession={updateSession} isAdmin={canScore} />}
         {tab === "bracket" && <BracketTab session={session} state={state} updateSession={updateSession} isAdmin={canScore} />}
       </div>
