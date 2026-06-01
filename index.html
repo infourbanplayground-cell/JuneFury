@@ -908,14 +908,14 @@ function DashboardView({ state, leaderboard, setTab, setOpenSessionId, isAdmin }
               <div className="h-px flex-1 bg-stone-800" />Attendance Streak<div className="h-px flex-1 bg-stone-800" />
             </div>
             <div className="flex gap-1.5 mb-2">
-              {[1,2,3,4].map(n => (
+              {[{n:1,pts:"0",lbl:"1st"},{n:2,pts:"+1",lbl:"2nd"},{n:3,pts:"+1",lbl:"3rd"},{n:4,pts:"+3",lbl:"4th 🔥"}].map(({n,pts,lbl}) => (
                 <div key={n} className="flex-1 rounded-lg py-2 text-center" style={{ background: n === 4 ? "linear-gradient(135deg,rgba(249,115,22,0.25),rgba(249,115,22,0.1))" : "rgba(28,25,23,0.8)", border: n === 4 ? "1px solid rgba(249,115,22,0.35)" : "1px solid rgba(68,64,60,0.5)" }}>
-                  <div className="font-mono font-bold text-base" style={{ color: n === 4 ? "#f97316" : "#a8a29e", textShadow: n === 4 ? "0 0 12px rgba(249,115,22,0.6)" : "none" }}>{n === 4 ? "+2" : "+1"}</div>
-                  <div className="text-[9px] uppercase tracking-wide mt-0.5" style={{ color: n === 4 ? "#fb923c" : "#57534e" }}>{n} {n === 1 ? "sess" : "row"}</div>
+                  <div className="font-mono font-bold text-base" style={{ color: n === 4 ? "#f97316" : n === 1 ? "#57534e" : "#a8a29e", textShadow: n === 4 ? "0 0 12px rgba(249,115,22,0.6)" : "none" }}>{pts}</div>
+                  <div className="text-[9px] uppercase tracking-wide mt-0.5" style={{ color: n === 4 ? "#fb923c" : "#57534e" }}>{lbl}</div>
                 </div>
               ))}
             </div>
-            <div className="text-[11px] text-stone-500 italic px-1">Max +5 · Miss a session → streak resets to 0</div>
+            <div className="text-[11px] text-stone-500 italic px-1">Builds from 2nd session in a row · Max +5 · Miss a session → streak resets</div>
           </div>
 
           {/* Double Points */}
