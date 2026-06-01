@@ -364,6 +364,12 @@ function calcStreak(idxs) {
   return Math.min(total, 5);
 }
 
+function koMatchPts(match, teamId) {
+  if (teamWon(match, teamId)) return 3;
+  const t = match.lossType || "tiebreak";
+  return t === "tiebreak" ? 2 : t === "competitive" ? 1 : 0;
+}
+
 function calcPlayerStats(pid, sessions) {
   let total = 0;
   const breakdown = { matchPts: 0, topOfGroup: 0, knockoutPts: 0, streakPts: 0 };
@@ -388,16 +394,17 @@ function calcPlayerStats(pid, sessions) {
     if (sessionPlayed > 0 && getTopOfGroup(s, team.group) === team.id) { total += 1 * mult; breakdown.topOfGroup += 1 * mult; }
     // Only count streak if player actually played a match this session
     if (sessionPlayed > 0) attended.push(idx);
-    const qf = s.bracket?.qf?.find(m => m.team1Id === team.id || m.team2Id === team.id);
-    if (qf) { total += 1 * mult; breakdown.knockoutPts += 1 * mult; stats.qfReached++;
-      if (teamWon(qf, team.id)) {
-        const sf = s.bracket?.sf?.find(m => m.team1Id === team.id || m.team2Id === team.id);
-        if (sf) { total += 2 * mult; breakdown.knockoutPts += 2 * mult; stats.sfReached++;
-          if (teamWon(sf, team.id)) {
-            const f = s.bracket?.final;
-            if (f && (f.team1Id === team.id || f.team2Id === team.id)) { total += 3 * mult; breakdown.knockoutPts += 3 * mult; stats.finalsReached++;
-              if (teamWon(f, team.id)) { total += 5 * mult; breakdown.knockoutPts += 5 * mult; stats.finalsWon++; }
-            }}}}}
+    const qfM = s.bracket?.qf?.find(m => (m.team1Id === team.id || m.team2Id === team.id) && m.winner);
+    if (qfM) { stats.qfReached++; const qp = (1 + koMatchPts(qfM, team.id)) * mult; total += qp; breakdown.knockoutPts += qp; }
+    const sfM = s.bracket?.sf?.find(m => (m.team1Id === team.id || m.team2Id === team.id) && m.winner);
+    if (sfM) { stats.sfReached++; const sp = (2 + koMatchPts(sfM, team.id)) * mult; total += sp; breakdown.knockoutPts += sp; }
+    const f = s.bracket?.final;
+    if (f && (f.team1Id === team.id || f.team2Id === team.id) && f.winner) {
+      stats.finalsReached++;
+      const fp = (3 + koMatchPts(f, team.id) + (teamWon(f, team.id) ? 5 : 0)) * mult;
+      total += fp; breakdown.knockoutPts += fp;
+      if (teamWon(f, team.id)) stats.finalsWon++;
+    }
   });
   const streak = calcStreak(attended); total += streak; breakdown.streakPts = streak;
   return { totalPts: total, breakdown, stats, attended, partners };
@@ -1783,16 +1790,16 @@ function BracketTab({ session, state, updateSession, isAdmin, canScore }) {
         <div className="font-display text-3xl text-stone-50">{lbl(champId)}</div>
       </Card>}
       <Card className="p-3">
-        <div className="flex items-center justify-between mb-2"><h3 className="font-display text-lg text-stone-200">QUARTERFINALS</h3><Pill color="orange">+1 each</Pill></div>
+        <div className="flex items-center justify-between mb-2"><h3 className="font-display text-lg text-stone-200">QUARTERFINALS</h3><Pill color="orange">+1 · W+3 TB+2 L+1</Pill></div>
         {isAdmin && <div className="text-[10px] text-amber-400 mb-2 flex items-center gap-1"><I.alert size={10} /> Tap to edit (for dropouts)</div>}
         <div className="space-y-1.5">{b.qf.map(m => <BracketRow key={m.id} match={m} lbl={lbl} onClick={() => canScore && setEdit({ ...m, round: "qf" })} />)}</div>
       </Card>
       {b.sf?.length > 0 && <Card className="p-3">
-        <div className="flex items-center justify-between mb-2"><h3 className="font-display text-lg text-stone-200">SEMIFINALS</h3><Pill color="red">+2 each</Pill></div>
+        <div className="flex items-center justify-between mb-2"><h3 className="font-display text-lg text-stone-200">SEMIFINALS</h3><Pill color="red">+2 · W+3 TB+2 L+1</Pill></div>
         <div className="space-y-1.5">{b.sf.map(m => <BracketRow key={m.id} match={m} lbl={lbl} onClick={() => canScore && setEdit({ ...m, round: "sf" })} />)}</div>
       </Card>}
       {b.final && <Card className="p-3" style={{ borderColor: "rgba(251, 191, 36, 0.3)" }}>
-        <div className="flex items-center justify-between mb-2"><h3 className="font-display text-lg text-amber-400">🏆 FINAL</h3><Pill color="amber">+3 reach / +5 win</Pill></div>
+        <div className="flex items-center justify-between mb-2"><h3 className="font-display text-lg text-amber-400">🏆 FINAL</h3><Pill color="amber">+3 reach · +5 win · W+3 TB+2 L+1</Pill></div>
         <BracketRow match={b.final} lbl={lbl} onClick={() => canScore && setEdit({ ...b.final, round: "final" })} big />
       </Card>}
       {edit && <BracketEditModal match={edit} teams={teams} state={state} isAdmin={isAdmin} onClose={() => setEdit(null)} onSave={(d) => updateSession(s => { const nb = { ...s.bracket }; if (edit.round === "qf") nb.qf = nb.qf.map(m => m.id === edit.id ? { ...m, ...d } : m); else if (edit.round === "sf") nb.sf = nb.sf.map(m => m.id === edit.id ? { ...m, ...d } : m); else nb.final = { ...nb.final, ...d }; return { ...s, bracket: nb }; })} onReset={() => updateSession(s => ({ ...s, bracket: { qf: s.bracket.qf, sf: [], final: null } }))} />}
