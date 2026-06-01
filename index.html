@@ -373,7 +373,7 @@ function koMatchPts(match, teamId) {
 function calcPlayerStats(pid, sessions) {
   let total = 0;
   const breakdown = { matchPts: 0, topOfGroup: 0, knockoutPts: 0, streakPts: 0 };
-  const stats = { groupWins: 0, groupPlayed: 0, sessionsPlayed: 0, qfReached: 0, sfReached: 0, finalsReached: 0, finalsWon: 0 };
+  const stats = { groupWins: 0, groupPlayed: 0, sessionsPlayed: 0, qfReached: 0, qfWins: 0, sfReached: 0, sfWins: 0, finalsReached: 0, finalsWon: 0 };
   const attended = [];
   const partners = {};
   sessions.forEach((s, idx) => {
@@ -395,9 +395,9 @@ function calcPlayerStats(pid, sessions) {
     // Only count streak if player actually played a match this session
     if (sessionPlayed > 0) attended.push(idx);
     const qfM = s.bracket?.qf?.find(m => (m.team1Id === team.id || m.team2Id === team.id) && m.winner);
-    if (qfM) { stats.qfReached++; const qp = (1 + koMatchPts(qfM, team.id)) * mult; total += qp; breakdown.knockoutPts += qp; }
+    if (qfM) { stats.qfReached++; if (teamWon(qfM, team.id)) stats.qfWins++; const qp = (1 + koMatchPts(qfM, team.id)) * mult; total += qp; breakdown.knockoutPts += qp; }
     const sfM = s.bracket?.sf?.find(m => (m.team1Id === team.id || m.team2Id === team.id) && m.winner);
-    if (sfM) { stats.sfReached++; const sp = (2 + koMatchPts(sfM, team.id)) * mult; total += sp; breakdown.knockoutPts += sp; }
+    if (sfM) { stats.sfReached++; if (teamWon(sfM, team.id)) stats.sfWins++; const sp = (2 + koMatchPts(sfM, team.id)) * mult; total += sp; breakdown.knockoutPts += sp; }
     const f = s.bracket?.final;
     if (f && (f.team1Id === team.id || f.team2Id === team.id) && f.winner) {
       stats.finalsReached++;
@@ -1947,9 +1947,14 @@ function LeaderboardView({ leaderboard, state, setOpenPlayerId }) {
                 <Avatar player={e.player} size={38} />
                 <div className="flex-1 min-w-0">
                   <div className="font-semibold truncate" style={{ color: i === 0 ? "#FFC24B" : "#f5f5f4" }}>{e.player.name}</div>
-                  <div className="text-[10px] text-stone-500 mt-0.5 flex items-center gap-2">
-                    <span>{e.stats.sessionsPlayed} sess</span><span>·</span><span>{e.stats.groupWins}W</span>
-                    {e.stats.finalsWon > 0 && <><span>·</span><span className="text-amber-400 font-semibold">{e.stats.finalsWon} finals</span></>}
+                  <div className="text-[10px] text-stone-500 mt-0.5 flex items-center gap-2 flex-wrap">
+                    <span>{e.stats.sessionsPlayed}sess</span>
+                    <span>·</span>
+                    <span className="text-stone-300 font-semibold">{e.stats.groupWins + e.stats.qfWins + e.stats.sfWins + e.stats.finalsWon}W</span>
+                    {e.stats.qfReached > 0 && <><span>·</span><span>QF×{e.stats.qfReached}</span></>}
+                    {e.stats.sfReached > 0 && <><span>·</span><span>SF×{e.stats.sfReached}</span></>}
+                    {e.stats.finalsWon > 0 && <><span>·</span><span className="text-amber-400 font-semibold">🏆×{e.stats.finalsWon}</span></>}
+                    {(e.stats.finalsReached - e.stats.finalsWon) > 0 && <><span>·</span><span className="text-stone-400">🥈×{e.stats.finalsReached - e.stats.finalsWon}</span></>}
                     {mode === "lifetime" && prevPts > 0 && <><span>·</span><span className="text-blue-400">+{prevPts} prev</span></>}
                   </div>
                 </div>
@@ -1991,9 +1996,11 @@ function PlayerDetail({ playerId, state, leaderboard, onClose }) {
       <Card className="p-3">
         <div className="grid grid-cols-2 gap-3 text-sm">
           <div><span className="text-stone-500">Sessions: </span><span className="text-stone-200 font-mono">{entry.stats.sessionsPlayed}</span></div>
-          <div><span className="text-stone-500">Group Wins: </span><span className="text-stone-200 font-mono">{entry.stats.groupWins}/{entry.stats.groupPlayed}</span></div>
-          <div><span className="text-stone-500">SFs: </span><span className="text-stone-200 font-mono">{entry.stats.sfReached}</span></div>
-          <div><span className="text-stone-500">Finals: </span><span className="text-amber-400 font-mono font-bold">{entry.stats.finalsWon}🏆 / {entry.stats.finalsReached}</span></div>
+          <div><span className="text-stone-500">Total Wins: </span><span className="text-stone-200 font-mono font-bold">{entry.stats.groupWins + entry.stats.qfWins + entry.stats.sfWins + entry.stats.finalsWon}</span></div>
+          <div><span className="text-stone-500">Group: </span><span className="text-stone-200 font-mono">{entry.stats.groupWins}W / {entry.stats.groupPlayed}P</span></div>
+          <div><span className="text-stone-500">QF: </span><span className="text-stone-200 font-mono">{entry.stats.qfWins}W / {entry.stats.qfReached}P</span></div>
+          <div><span className="text-stone-500">SF: </span><span className="text-stone-200 font-mono">{entry.stats.sfWins}W / {entry.stats.sfReached}P</span></div>
+          <div><span className="text-stone-500">🏆 / 🥈: </span><span className="text-amber-400 font-mono font-bold">{entry.stats.finalsWon} / {entry.stats.finalsReached - entry.stats.finalsWon}</span></div>
         </div>
       </Card>
       {lockedNames.length > 0 && <Card className="p-3" style={{ borderColor: "rgba(220, 38, 38, 0.3)" }}>
@@ -2025,10 +2032,10 @@ function SettingsView({ state, update, setState, setTab, logout }) {
           <div className="flex justify-between"><span className="text-stone-300">❌ 6-0/6-1 Loss</span><span className="font-mono text-stone-500">0</span></div>
           <div className="border-t border-stone-800 my-2" />
           <div className="flex justify-between"><span className="text-stone-300">🥇 Top of Group</span><span className="font-mono text-amber-400">+1</span></div>
-          <div className="flex justify-between"><span className="text-stone-300">🎯 Reach QF</span><span className="font-mono text-orange-400">+1</span></div>
-          <div className="flex justify-between"><span className="text-stone-300">🔥 Reach SF</span><span className="font-mono text-orange-400">+2</span></div>
-          <div className="flex justify-between"><span className="text-stone-300">⚔️ Reach Final</span><span className="font-mono text-red-400">+3</span></div>
-          <div className="flex justify-between"><span className="text-stone-300">🏆 Win Final</span><span className="font-mono text-amber-400 font-bold">+5</span></div>
+          <div className="flex justify-between"><span className="text-stone-300">🎯 Reach QF</span><span className="font-mono text-orange-400">+1 + match</span></div>
+          <div className="flex justify-between"><span className="text-stone-300">🔥 Reach SF</span><span className="font-mono text-orange-400">+2 + match</span></div>
+          <div className="flex justify-between"><span className="text-stone-300">⚔️ Reach Final</span><span className="font-mono text-red-400">+3 + match</span></div>
+          <div className="flex justify-between"><span className="text-stone-300">🏆 Win Final</span><span className="font-mono text-amber-400 font-bold">+5 bonus</span></div>
           <div className="border-t border-stone-800 my-2" />
           <div className="flex justify-between"><span className="text-stone-300">🔥 Streak Max</span><span className="font-mono text-orange-500 font-bold">+5</span></div>
         </div>
