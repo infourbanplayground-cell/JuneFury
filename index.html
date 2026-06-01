@@ -117,47 +117,57 @@
 const { useState, useEffect, useMemo, useRef } = React;
 
 // ═══════════════════════════════════════════════════════════════
-// 🔌 API CLIENT — JSONBin.io storage (CORS-enabled, plain fetch)
+// 🔌 API CLIENT — Cloudflare Worker auth + storage proxy
+// The Worker holds the JSONBin key + PINs server-side. Nothing secret here.
+// After deploying worker/june-fury-worker.js, set WORKER_URL to its address.
 // ═══════════════════════════════════════════════════════════════
-const JSONBIN_ID = "6a1c241821f9ee59d2a0ebcd";
-const JSONBIN_KEY = "$2a$10$IsGhyaT80Wh7yjWSioBmAu/D7COHN3m3AFg0C9bUubJr8ymazFBpy";
-const JSONBIN_BASE = "https://api.jsonbin.io/v3/b/" + JSONBIN_ID;
+const WORKER_URL = "https://june-fury.infourbanplayground.workers.dev";
 
 const LOCAL_KEY = "june-fury-state-v2";
 const ADMIN_KEY = "june-fury-admin";
-const ADMIN_PIN = "0001";
-const SCORER_PIN = "1234";
+const TOKEN_KEY = "june-fury-token";
 
-// Read latest state from the bin. Returns { ok, state } shape for existing callers.
+function getToken() { try { return localStorage.getItem(TOKEN_KEY) || ""; } catch (e) { return ""; } }
+function setToken(t) { try { t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY); } catch (e) {} }
+
+// Read latest state. Returns { ok, state } shape for existing callers.
 async function apiGet(action, params = {}) {
   if (action === "unlock") {
-    const pin = String(params.pin);
-    if (pin === ADMIN_PIN) return { ok: true, role: "admin" };
-    if (pin === SCORER_PIN) return { ok: true, role: "scorer" };
+    // Exchange a PIN for a signed token via the Worker.
+    const res = await fetch(WORKER_URL + "/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pin: String(params.pin) }),
+    });
+    if (!res.ok) return { ok: false };
+    const data = await res.json().catch(() => ({}));
+    if (data.ok && data.token) { setToken(data.token); return { ok: true, role: data.role }; }
     return { ok: false };
   }
   if (action === "ping") return { ok: true };
-  // getState (and anything else) → fetch latest bin record
-  const res = await fetch(JSONBIN_BASE + "/latest", {
-    method: "GET",
-    headers: { "X-Master-Key": JSONBIN_KEY, "X-Bin-Meta": "false" },
-  });
+  // getState → fetch latest state through the Worker
+  const res = await fetch(WORKER_URL + "/state", { method: "GET" });
   if (!res.ok) throw new Error("Load failed (" + res.status + ")");
-  const raw = await res.json();
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || "Load failed");
   // Merge defaults so a fresh/partial bin doesn't break the UI; saved fields win.
   const base = initState();
+  const raw = data.state;
   const state = (raw && raw.players) ? { ...base, ...raw } : base;
   return { ok: true, state };
 }
 
-// Write full state to the bin (PUT replaces the record). No chunking — CORS fetch.
+// Write full state through the Worker (requires a valid token).
 async function apiPost(body) {
   if (body.action !== "saveState") return { ok: true };
-  const res = await fetch(JSONBIN_BASE, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json", "X-Master-Key": JSONBIN_KEY },
-    body: JSON.stringify(body.state),
+  const token = getToken();
+  if (!token) throw new Error("Sign in to save");
+  const res = await fetch(WORKER_URL + "/save", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+    body: JSON.stringify({ state: body.state }),
   });
+  if (res.status === 401) { setToken(""); throw new Error("Session expired — sign in again"); }
   if (!res.ok) throw new Error("Save failed (" + res.status + ")");
   return { ok: true };
 }
@@ -639,7 +649,7 @@ function App() {
     try { const r = await apiGet("unlock", { pin }); if (r?.ok && r.role) { setRole(r.role); localStorage.setItem(ADMIN_KEY, r.role); setShowLogin(false); return true; } return false; }
     catch (e) { return false; }
   };
-  const logout = () => { setRole("guest"); localStorage.removeItem(ADMIN_KEY); if (tab === "players" || tab === "settings") setTab("dashboard"); };
+  const logout = () => { setRole("guest"); localStorage.removeItem(ADMIN_KEY); setToken(""); if (tab === "players" || tab === "settings") setTab("dashboard"); };
 
   if (!state) return null;
 

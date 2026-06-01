@@ -1,0 +1,8 @@
+name = "june-fury"
+main = "june-fury-worker.js"
+compatibility_date = "2024-09-01"
+
+# Public (non-secret) variables. PINs and the JSONBin key are NOT here —
+# set those with `wrangler secret put` so they stay encrypted server-side.
+[vars]
+ALLOW_ORIGIN = "https://infourbanplayground-cell.github.io"
