@@ -372,18 +372,22 @@ function calcPlayerStats(pid, sessions) {
   const partners = {};
   sessions.forEach((s, idx) => {
     const team = getPlayerTeam(s, pid); if (!team) return;
-    attended.push(idx); stats.sessionsPlayed++;
+    stats.sessionsPlayed++;
     const partnerId = team.p1Id === pid ? team.p2Id : team.p1Id;
     partners[partnerId] = (partners[partnerId] || 0) + 1;
     // 2X Double Points (applies to everything except streak)
     const mult = s.doublePoints ? 2 : 1;
+    let sessionPlayed = 0;
     (s.groupMatches || []).forEach(m => {
       if (m.team1Id !== team.id && m.team2Id !== team.id) return;
-      if (!m.winner) return; stats.groupPlayed++;
+      if (!m.winner) return; stats.groupPlayed++; sessionPlayed++;
       if (teamWon(m, team.id)) { total += 3 * mult; breakdown.matchPts += 3 * mult; stats.groupWins++; }
       else { const t = m.lossType || "tiebreak"; const p = t === "tiebreak" ? 2 : t === "competitive" ? 1 : 0; total += p * mult; breakdown.matchPts += p * mult; }
     });
-    if (getTopOfGroup(s, team.group) === team.id) { total += 1 * mult; breakdown.topOfGroup += 1 * mult; }
+    // Only award top-of-group if team actually played matches
+    if (sessionPlayed > 0 && getTopOfGroup(s, team.group) === team.id) { total += 1 * mult; breakdown.topOfGroup += 1 * mult; }
+    // Only count streak if player actually played a match this session
+    if (sessionPlayed > 0) attended.push(idx);
     const qf = s.bracket?.qf?.find(m => m.team1Id === team.id || m.team2Id === team.id);
     if (qf) { total += 1 * mult; breakdown.knockoutPts += 1 * mult; stats.qfReached++;
       if (teamWon(qf, team.id)) {
