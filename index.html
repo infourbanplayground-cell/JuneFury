@@ -298,6 +298,7 @@ function initState() {
     seasonName: "JUNE FURY",
     seasonSubtitle: "URBAN SOCIAL SERIES · VOL. 4",
     seasonTagline: "New Rules. New Chaos.",
+    prevSeriesNames: ["Midnight Rally", "April Clash", "Midnight Madness"],
     players: SEED_PLAYERS.map(name => ({ id: uid("p"), name, addedAt: Date.now() })),
     sessions: [],
   };
@@ -666,7 +667,11 @@ function App() {
 
   const update = (fn) => setState(s => fn({ ...s }));
   const updateSession = (sid, fn) => setState(s => ({ ...s, sessions: s.sessions.map(ss => ss.id === sid ? fn({ ...ss }) : ss) }));
-  const leaderboard = state.players.map(p => { const s = calcPlayerStats(p.id, state.sessions); return { player: p, ...s, lifetimePts: s.totalPts + (p.prevSeriesPoints || 0) }; }).sort((a, b) => b.totalPts - a.totalPts);
+  const leaderboard = state.players.map(p => {
+    const s = calcPlayerStats(p.id, state.sessions);
+    const prevSum = Object.values(p.prevSeriesPts || {}).reduce((a, b) => a + (Number(b) || 0), 0) + (p.prevSeriesPoints || 0);
+    return { player: p, ...s, lifetimePts: s.totalPts + prevSum };
+  }).sort((a, b) => b.totalPts - a.totalPts);
   const currentSession = state.sessions.find(s => s.id === openSessionId);
 
   const navTabs = [
@@ -1004,7 +1009,7 @@ function PlayersView({ state, update, setOpenPlayerId, isAdmin }) {
       </div>
       {showAdd && <AddPlayerModal onClose={() => setShowAdd(false)} onAdd={(name) => update(s => ({ ...s, players: [...s.players, { id: uid("p"), name: name.trim(), addedAt: Date.now() }] }))} />}
       {showBulk && <WhatsAppImportModal onClose={() => setShowBulk(false)} existing={state.players} onAdd={(players) => update(s => ({ ...s, players: [...s.players, ...players] }))} />}
-      {editPlayer && <PlayerEditModal player={editPlayer} onClose={() => setEditPlayer(null)}
+      {editPlayer && <PlayerEditModal player={editPlayer} seriesNames={state.prevSeriesNames || []} onClose={() => setEditPlayer(null)}
         onSave={(data) => update(s => ({ ...s, players: s.players.map(p => p.id === editPlayer.id ? { ...p, ...data } : p) }))}
         onDelete={() => update(s => ({ ...s, players: s.players.filter(p => p.id !== editPlayer.id) }))} />}
     </div>
@@ -1024,11 +1029,14 @@ function AddPlayerModal({ onClose, onAdd }) {
   </Modal>;
 }
 
-function PlayerEditModal({ player, onClose, onSave, onDelete }) {
+function PlayerEditModal({ player, seriesNames, onClose, onSave, onDelete }) {
   const [name, setName] = useState(player.name || "");
   const [photoUrl, setPhotoUrl] = useState(player.photoUrl || "");
-  const [prevPts, setPrevPts] = useState(String(player.prevSeriesPoints || 0));
+  const initSeriesPts = {};
+  (seriesNames || []).forEach(n => { initSeriesPts[n] = String((player.prevSeriesPts || {})[n] || 0); });
+  const [seriesPts, setSeriesPts] = useState(initSeriesPts);
   const [showDel, setShowDel] = useState(false);
+  const totalPrev = (seriesNames || []).reduce((sum, n) => sum + (parseInt(seriesPts[n]) || 0), 0) + (player.prevSeriesPoints || 0);
   return <Modal open={true} onClose={onClose} title="EDIT PLAYER">
     <div className="space-y-3">
       {photoUrl && !photoUrl.includes("PASTE") && (
@@ -1036,14 +1044,26 @@ function PlayerEditModal({ player, onClose, onSave, onDelete }) {
       )}
       <div><label className="text-xs text-stone-400 uppercase tracking-wider font-semibold mb-1 block">Name</label><Input value={name} onChange={setName} /></div>
       <div><label className="text-xs text-stone-400 uppercase tracking-wider font-semibold mb-1 block">Photo URL</label><Input value={photoUrl} onChange={setPhotoUrl} placeholder="https://..." /></div>
-      <div><label className="text-xs text-stone-400 uppercase tracking-wider font-semibold mb-1 block">Previous Series Points</label>
-        <Input type="number" value={prevPts} onChange={setPrevPts} placeholder="0" />
-        <div className="text-[10px] text-stone-500 mt-1">Points carried over from past series for lifetime leaderboard.</div>
-      </div>
+      {(seriesNames || []).length > 0 && <div>
+        <label className="text-xs text-stone-400 uppercase tracking-wider font-semibold mb-2 block">Previous Series Points <span className="text-stone-600 normal-case">(total: {totalPrev})</span></label>
+        <div className="space-y-2">
+          {(seriesNames || []).map(sn => (
+            <div key={sn} className="flex items-center gap-2">
+              <span className="text-xs text-stone-400 flex-1 truncate">{sn}</span>
+              <Input type="number" value={seriesPts[sn] ?? "0"} onChange={v => setSeriesPts(p => ({ ...p, [sn]: v }))} className="w-20 text-right" />
+            </div>
+          ))}
+        </div>
+      </div>}
       <div className="flex gap-2 pt-2">
         <Btn variant="danger" size="sm" onClick={() => setShowDel(true)}><I.trash size={14} /></Btn>
         <Btn variant="ghost" onClick={onClose} className="ml-auto">Cancel</Btn>
-        <Btn onClick={() => { onSave({ name: name.trim() || player.name, photoUrl: photoUrl.trim(), prevSeriesPoints: parseInt(prevPts) || 0 }); onClose(); }}>Save</Btn>
+        <Btn onClick={() => {
+          const pts = {};
+          (seriesNames || []).forEach(n => { pts[n] = parseInt(seriesPts[n]) || 0; });
+          onSave({ name: name.trim() || player.name, photoUrl: photoUrl.trim(), prevSeriesPts: pts });
+          onClose();
+        }}>Save</Btn>
       </div>
       {showDel && <div className="mt-2 p-3 rounded-lg bg-red-950/40 border border-red-900/40 space-y-2">
         <div className="text-sm text-red-300">Delete {player.name}? This is permanent.</div>
@@ -1903,11 +1923,14 @@ function BracketEditModal({ match, teams, state, isAdmin, onClose, onSave, onRes
 
 function LeaderboardView({ leaderboard, state, setOpenPlayerId }) {
   const [mode, setMode] = useState("season"); // "season" | "lifetime"
-  const hasLifetime = leaderboard.some(e => (e.player.prevSeriesPoints || 0) > 0);
+  const seriesNames = state.prevSeriesNames || [];
+  const hasLifetime = leaderboard.some(e => {
+    const p = e.player;
+    return (p.prevSeriesPoints || 0) > 0 || Object.values(p.prevSeriesPts || {}).some(v => v > 0);
+  });
   const sorted = mode === "lifetime"
     ? [...leaderboard].sort((a, b) => b.lifetimePts - a.lifetimePts)
     : leaderboard;
-  // Only rank players who have actually played a match (not just attended/seeded)
   const hasPlayed = (l) => l.stats.groupPlayed > 0 || l.stats.qfReached > 0;
   const active = sorted.filter(hasPlayed);
   const inactive = sorted.filter(l => !hasPlayed(l));
@@ -1934,7 +1957,8 @@ function LeaderboardView({ leaderboard, state, setOpenPlayerId }) {
       {active.length === 0 ? <Card className="p-8 text-center border-dashed"><I.trophy className="mx-auto mb-3 text-stone-600" size={32} /><div className="text-stone-300 font-semibold">Ranking locked</div><div className="text-stone-500 text-sm mt-1">Standings appear after the first match is played</div></Card>
         : <div className="space-y-1.5">{active.map((e, i) => {
           const pts = mode === "lifetime" ? e.lifetimePts : e.totalPts;
-          const prevPts = e.player.prevSeriesPoints || 0;
+          const playerSeriesPts = e.player.prevSeriesPts || {};
+          const legacyPrev = e.player.prevSeriesPoints || 0;
           return (
             <div key={e.player.id} className="rounded-xl p-3 cursor-pointer transition-all active:scale-[0.99]"
               style={{ background: "var(--surface)", border: `1px solid ${i < 3 ? rankColors[i] + "33" : "rgba(68,64,60,0.5)"}` }}
@@ -1955,12 +1979,21 @@ function LeaderboardView({ leaderboard, state, setOpenPlayerId }) {
                     {e.stats.sfReached > 0 && <><span>·</span><span>SF×{e.stats.sfReached}</span></>}
                     {e.stats.finalsWon > 0 && <><span>·</span><span className="text-amber-400 font-semibold">🏆×{e.stats.finalsWon}</span></>}
                     {(e.stats.finalsReached - e.stats.finalsWon) > 0 && <><span>·</span><span className="text-stone-400">🥈×{e.stats.finalsReached - e.stats.finalsWon}</span></>}
-                    {mode === "lifetime" && prevPts > 0 && <><span>·</span><span className="text-blue-400">+{prevPts} prev</span></>}
                   </div>
+                  {mode === "lifetime" && seriesNames.length > 0 && (
+                    <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5">
+                      {seriesNames.map(sn => {
+                        const v = playerSeriesPts[sn] || 0;
+                        return <span key={sn} className="text-[9px] text-stone-500">{sn}: <span className="text-stone-400 font-mono">{v}</span></span>;
+                      })}
+                      {legacyPrev > 0 && <span className="text-[9px] text-stone-500">Legacy: <span className="text-stone-400 font-mono">{legacyPrev}</span></span>}
+                      <span className="text-[9px] text-stone-500">{state.seasonName}: <span className="text-blue-400 font-mono">{e.totalPts}</span></span>
+                    </div>
+                  )}
                 </div>
                 <div className="text-right shrink-0">
                   <div className="font-mono font-bold text-2xl" style={{ color: i === 0 ? "#FFC24B" : i < 3 ? "#FF8A3D" : "#e7e5e4" }}>{pts}</div>
-                  <div className="text-[9px] text-stone-500 uppercase">pts</div>
+                  <div className="text-[9px] text-stone-500 uppercase">{mode === "lifetime" ? "total" : "pts"}</div>
                 </div>
               </div>
             </div>
@@ -1977,7 +2010,10 @@ function PlayerDetail({ playerId, state, leaderboard, onClose }) {
   const rank = leaderboard.findIndex(l => l.player.id === playerId) + 1;
   const locked = getLockedPartners(playerId, state.sessions);
   const lockedNames = Array.from(locked).map(id => state.players.find(p => p.id === id)?.name).filter(Boolean);
-  const prevPts = player.prevSeriesPoints || 0;
+  const seriesNames = state.prevSeriesNames || [];
+  const playerSeriesPts = player.prevSeriesPts || {};
+  const legacyPrev = player.prevSeriesPoints || 0;
+  const prevSum = Object.values(playerSeriesPts).reduce((a, b) => a + (Number(b) || 0), 0) + legacyPrev;
   return <Modal open={true} onClose={onClose} title={player.name.toUpperCase()}>
     <div className="space-y-4">
       <div className="text-center py-3">
@@ -1985,8 +2021,23 @@ function PlayerDetail({ playerId, state, leaderboard, onClose }) {
         <div className="text-xs text-stone-500 uppercase tracking-wider mb-1">Rank #{rank}</div>
         <div className="font-mono text-5xl font-bold" style={{ color: rank === 1 ? "#fbbf24" : rank <= 3 ? "#f97316" : "#fafaf9" }}>{entry.totalPts}</div>
         <div className="text-xs text-stone-500 uppercase tracking-wider">this series</div>
-        {prevPts > 0 && <div className="text-sm text-blue-400 mt-1 font-mono">+{prevPts} prev series = <span className="font-bold text-stone-200">{entry.lifetimePts}</span> lifetime</div>}
+        {prevSum > 0 && <div className="text-sm text-blue-400 mt-1 font-mono">+{prevSum} prev = <span className="font-bold text-stone-200">{entry.lifetimePts}</span> lifetime</div>}
       </div>
+      {prevSum > 0 && seriesNames.length > 0 && <Card className="p-3">
+        <div className="text-[10px] text-stone-500 uppercase tracking-wider font-semibold mb-2">Previous Series</div>
+        <div className="space-y-1">
+          {seriesNames.map(sn => (
+            <div key={sn} className="flex justify-between text-sm">
+              <span className="text-stone-400">{sn}</span>
+              <span className="font-mono text-stone-200">{playerSeriesPts[sn] || 0}</span>
+            </div>
+          ))}
+          {legacyPrev > 0 && <div className="flex justify-between text-sm"><span className="text-stone-400">Legacy</span><span className="font-mono text-stone-200">{legacyPrev}</span></div>}
+          <div className="border-t border-stone-800 pt-1 flex justify-between text-sm font-semibold">
+            <span className="text-stone-300">Total prev</span><span className="font-mono text-blue-400">{prevSum}</span>
+          </div>
+        </div>
+      </Card>}
       <div className="grid grid-cols-2 gap-2">
         <Card className="p-3"><div className="text-[10px] text-stone-500 uppercase tracking-wider mb-1">Match</div><div className="font-mono text-2xl font-bold text-stone-100">{entry.breakdown.matchPts}</div></Card>
         <Card className="p-3"><div className="text-[10px] text-stone-500 uppercase tracking-wider mb-1">Knockout</div><div className="font-mono text-2xl font-bold text-red-400">{entry.breakdown.knockoutPts}</div></Card>
@@ -2039,6 +2090,19 @@ function SettingsView({ state, update, setState, setTab, logout }) {
           <div className="border-t border-stone-800 my-2" />
           <div className="flex justify-between"><span className="text-stone-300">🔥 Streak Max</span><span className="font-mono text-orange-500 font-bold">+5</span></div>
         </div>
+      </Card>
+      <Card className="p-4">
+        <h3 className="font-display text-lg text-stone-200 mb-3">PREVIOUS SERIES</h3>
+        <div className="text-[10px] text-stone-500 mb-3">Series listed here appear as separate point inputs per player in the all-time leaderboard.</div>
+        <div className="space-y-2 mb-3">
+          {(state.prevSeriesNames || []).map((sn, idx) => (
+            <div key={idx} className="flex items-center gap-2">
+              <Input value={sn} onChange={v => update(s => { const a = [...(s.prevSeriesNames || [])]; a[idx] = v; return { ...s, prevSeriesNames: a }; })} className="flex-1" />
+              <button onClick={() => update(s => { const a = (s.prevSeriesNames || []).filter((_, i) => i !== idx); return { ...s, prevSeriesNames: a }; })} className="p-1.5 rounded-lg text-stone-500 hover:text-red-400 hover:bg-red-950/30"><I.trash size={14} /></button>
+            </div>
+          ))}
+        </div>
+        <Btn size="sm" variant="secondary" onClick={() => update(s => ({ ...s, prevSeriesNames: [...(s.prevSeriesNames || []), "New Series"] }))}><I.plus size={12} /> Add Series</Btn>
       </Card>
       <Card className="p-4">
         <h3 className="font-display text-lg text-stone-200 mb-3">DATA</h3>
