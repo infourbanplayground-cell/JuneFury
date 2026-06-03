@@ -102,7 +102,11 @@ async function handleSave(request, env, cors) {
     headers: { "Content-Type": "application/json", "X-Master-Key": env.JSONBIN_KEY },
     body: JSON.stringify(body.state),
   });
-  if (!res.ok) return json({ ok: false, error: "Save failed (" + res.status + ")" }, 502, cors);
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    const detail = errText.slice(0, 200);
+    return json({ ok: false, error: "JSONBin " + res.status + (detail ? ": " + detail : "") }, 502, cors);
+  }
   return json({ ok: true }, 200, cors);
 }
 

@@ -126,14 +126,26 @@ const WORKER_URL = "https://june-fury.infourbanplayground.workers.dev";
 const LOCAL_KEY = "june-fury-state-v2";
 const ADMIN_KEY = "june-fury-admin";
 const TOKEN_KEY = "june-fury-token";
+const PHOTOS_KEY = "june-fury-photos";
 
 function getToken() { try { return localStorage.getItem(TOKEN_KEY) || ""; } catch (e) { return ""; } }
 function setToken(t) { try { t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY); } catch (e) {} }
+function getLocalPhotos() { try { return JSON.parse(localStorage.getItem(PHOTOS_KEY) || "{}"); } catch { return {}; } }
+function saveLocalPhotos(players) {
+  try {
+    const cur = getLocalPhotos();
+    (players || []).forEach(p => { if (p.photoUrl?.startsWith("data:")) cur[p.id] = p.photoUrl; });
+    localStorage.setItem(PHOTOS_KEY, JSON.stringify(cur));
+  } catch {}
+}
+function mergeLocalPhotos(players) {
+  const photos = getLocalPhotos();
+  return (players || []).map(p => ({ ...p, photoUrl: photos[p.id] || p.photoUrl || "" }));
+}
 
 // Read latest state. Returns { ok, state } shape for existing callers.
 async function apiGet(action, params = {}) {
   if (action === "unlock") {
-    // Exchange a PIN for a signed token via the Worker.
     const res = await fetch(WORKER_URL + "/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -145,16 +157,16 @@ async function apiGet(action, params = {}) {
     return { ok: false };
   }
   if (action === "ping") return { ok: true };
-  // getState → fetch latest state through the Worker
   const res = await fetch(WORKER_URL + "/state", { method: "GET" });
   if (!res.ok) throw new Error("Load failed (" + res.status + ")");
   const data = await res.json();
   if (!data.ok) throw new Error(data.error || "Load failed");
-  // Merge defaults so a fresh/partial bin doesn't break the UI; saved fields win.
   const base = initState();
   const raw = data.state;
-  const state = (raw && raw.players) ? { ...base, ...raw } : base;
-  return { ok: true, state };
+  const loaded = (raw && raw.players) ? { ...base, ...raw } : base;
+  // Merge base64 photos stored locally (not sent to remote to keep payload small)
+  loaded.players = mergeLocalPhotos(loaded.players);
+  return { ok: true, state: loaded };
 }
 
 // Write full state through the Worker (requires a valid token).
@@ -162,13 +174,24 @@ async function apiPost(body) {
   if (body.action !== "saveState") return { ok: true };
   const token = getToken();
   if (!token) throw new Error("Sign in to save");
+  // Save base64 photos locally; strip from remote payload to keep JSONBin size down
+  saveLocalPhotos(body.state.players);
+  const remoteState = {
+    ...body.state,
+    players: (body.state.players || []).map(p =>
+      p.photoUrl?.startsWith("data:") ? { ...p, photoUrl: "" } : p
+    ),
+  };
   const res = await fetch(WORKER_URL + "/save", {
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
-    body: JSON.stringify({ state: body.state }),
+    body: JSON.stringify({ state: remoteState }),
   });
   if (res.status === 401) { setToken(""); throw new Error("Session expired — sign in again"); }
-  if (!res.ok) throw new Error("Save failed (" + res.status + ")");
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.error || "Save failed (" + res.status + ")");
+  }
   return { ok: true };
 }
 
@@ -660,7 +683,7 @@ function App() {
     saveTimer.current = setTimeout(async () => {
       try { await apiPost({ action: "saveState", state }); setSync("idle"); setSyncErr(""); }
       catch (e) { setSync("error"); setSyncErr(e.message || "Unknown sync error"); }
-    }, 600);
+    }, 3000);
   }, [state, canScore]);
 
   useEffect(() => {
