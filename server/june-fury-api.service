@@ -1,0 +1,17 @@
+[Unit]
+Description=June Fury API
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/june-fury-api
+ExecStart=/usr/bin/node api.js
+Restart=always
+RestartSec=5
+EnvironmentFile=/opt/june-fury-api/.env
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

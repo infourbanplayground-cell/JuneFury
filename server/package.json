@@ -1,0 +1,11 @@
+{
+  "name": "june-fury-api",
+  "version": "1.0.0",
+  "main": "api.js",
+  "scripts": { "start": "node api.js" },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "pg": "^8.12.0"
+  }
+}
