@@ -174,18 +174,10 @@ async function apiPost(body) {
   if (body.action !== "saveState") return { ok: true };
   const token = getToken();
   if (!token) throw new Error("Sign in to save");
-  // Save base64 photos locally; strip from remote payload to keep JSONBin size down
-  saveLocalPhotos(body.state.players);
-  const remoteState = {
-    ...body.state,
-    players: (body.state.players || []).map(p =>
-      p.photoUrl?.startsWith("data:") ? { ...p, photoUrl: "" } : p
-    ),
-  };
   const res = await fetch(WORKER_URL + "/save", {
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
-    body: JSON.stringify({ state: remoteState }),
+    body: JSON.stringify({ state: body.state }),
   });
   if (res.status === 401) { setToken(""); throw new Error("Session expired — sign in again"); }
   if (!res.ok) {
@@ -316,7 +308,7 @@ function getQualifyCount(session) {
   return session?.qualifyCount || 1;
 }
 
-function resizeToBase64(file, size = 200) {
+function resizeToBase64(file, size = 80) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     const url = URL.createObjectURL(file);
@@ -328,7 +320,7 @@ function resizeToBase64(file, size = 200) {
       const s = Math.min(img.width, img.height);
       const ox = (img.width - s) / 2, oy = (img.height - s) / 2;
       ctx.drawImage(img, ox, oy, s, s, 0, 0, size, size);
-      resolve(canvas.toDataURL("image/jpeg", 0.82));
+      resolve(canvas.toDataURL("image/jpeg", 0.65));
     };
     img.onerror = reject;
     img.src = url;
@@ -754,7 +746,7 @@ function App() {
         {tab === "players" && isAdmin && <PlayersView state={state} update={update} setOpenPlayerId={setOpenPlayerId} isAdmin={isAdmin} />}
         {tab === "sessions" && <SessionsView state={state} update={update} setOpenSessionId={setOpenSessionId} isAdmin={isAdmin} />}
         {tab === "leaderboard" && <LeaderboardView leaderboard={leaderboard} state={state} setOpenPlayerId={setOpenPlayerId} />}
-        {tab === "settings" && isAdmin && <SettingsView state={state} update={update} setState={setState} setTab={setTab} logout={logout} />}
+        {tab === "settings" && isAdmin && <SettingsView state={state} update={update} setTab={setTab} logout={logout} />}
       </main>
 
       <nav className="fixed bottom-0 inset-x-0 z-30 border-t border-stone-800/80 backdrop-blur-xl" style={{ background: "rgba(10, 8, 7, 0.92)" }}>
@@ -2134,8 +2126,7 @@ function PlayerDetail({ playerId, state, leaderboard, canScore, update, onClose 
   </Modal>;
 }
 
-function SettingsView({ state, update, setState, setTab, logout }) {
-  const [showRst, setShowRst] = useState(false);
+function SettingsView({ state, update, setTab, logout }) {
   const [showExp, setShowExp] = useState(false);
   return (
     <div className="space-y-4">
@@ -2179,15 +2170,10 @@ function SettingsView({ state, update, setState, setTab, logout }) {
         <h3 className="font-display text-lg text-stone-200 mb-3">DATA</h3>
         <div className="space-y-2">
           <Btn variant="secondary" className="w-full" onClick={() => setShowExp(true)}><I.download size={14} /> Export JSON</Btn>
-          <Btn variant="danger" className="w-full" onClick={() => setShowRst(true)}><I.trash size={14} /> Reset Everything</Btn>
           <Btn variant="ghost" className="w-full" onClick={logout}>Sign out of organizer mode</Btn>
         </div>
       </Card>
       <button onClick={() => setTab("dashboard")} className="w-full py-3 text-sm text-stone-500">← Back to Dashboard</button>
-      {showRst && <Modal open={true} onClose={() => setShowRst(false)} title="RESET ALL?">
-        <div className="space-y-3"><div className="text-sm text-stone-300">Permanently delete everything?</div>
-          <div className="flex gap-2"><Btn variant="ghost" onClick={() => setShowRst(false)}>Cancel</Btn><Btn variant="danger" onClick={() => { setState(initState()); setShowRst(false); setTab("dashboard"); }}>Reset</Btn></div>
-        </div></Modal>}
       {showExp && <Modal open={true} onClose={() => setShowExp(false)} title="EXPORT">
         <div className="space-y-3"><div className="text-xs text-stone-400">Copy to back up:</div>
           <textarea readOnly value={JSON.stringify(state, null, 2)} rows={10} className="w-full bg-stone-900 border border-stone-700 rounded-lg px-3 py-2.5 text-stone-100 font-mono text-xs" />
